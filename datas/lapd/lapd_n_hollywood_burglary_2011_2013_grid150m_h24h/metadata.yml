@@ -1,0 +1,45 @@
+dataset_id: lapd_n_hollywood_burglary_2011_2013_grid150m_h24h
+source:
+  city: Los Angeles
+  provider: Los Angeles Police Department via LA City Open Data
+  crime_endpoint: https://data.lacity.org/resource/63jg-8b9z.json
+  boundary_endpoint: https://maps.lacity.org/arcgis/rest/services/Mapping/Boundaries/MapServer/11/query
+  retrieved_at_utc: '2026-09-14T12:53:59+00:00'
+filters:
+  area_code: '15'
+  area_name: N Hollywood
+  crime_code: '310'
+  crime_name: BURGLARY
+  start: '2011-01-01'
+  end: '2013-01-11'
+spatial:
+  source_crs: EPSG:4326
+  projected_crs: EPSG:3310
+  grid_m: 150
+  grid_cells: 2852
+  division_area_m2: 58959645.937208615
+  grid_area_m2: 58959645.93720857
+forecast:
+  horizon_hours: 24
+files:
+  raw: raw/events_raw.parquet
+  processed_events: processed/events.parquet
+  processed_grid: processed/grid.geojson
+  raw_sha256: 8118763bb15018b9ca2a3be060e3251acef0fe1cdb3800577de3123ba9928d92
+  processed_events_sha256: f4974c0c710f55e187efd8a72bf72c5c5c385e0df79767d24e29edbf3da0297c
+  processed_grid_sha256: aba7e1b7d9c1e7f1bc85ddef91de4904ed75ff3964c9899e5c15698b2a23823f
+cleaning_summary:
+  raw_rows: 1634
+  duplicate_dr_no_rows: 0
+  invalid_datetime_rows: 0
+  invalid_coordinate_rows: 2
+  after_basic_cleaning_rows: 1632
+  outside_division_rows: 28
+  unassigned_cell_rows: 0
+  processed_rows: 1604
+limitations:
+- Public historical records may differ from operational records available at prediction
+  time.
+- Occurrence datetime is based on DATE OCC and TIME OCC; reporting delay is not modeled
+  here.
+- This dataset is prepared for technical reproduction only, not operational deployment.
