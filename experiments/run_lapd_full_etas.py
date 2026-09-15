@@ -19,7 +19,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
-from matplotlib.colors import PowerNorm
+from matplotlib.colors import LinearSegmentedColormap, PowerNorm
 from matplotlib.lines import Line2D
 from PIL import Image
 
@@ -42,6 +42,11 @@ GROUP_COLORS = {
     "VIOLENT": "#542788",
     "WEAPON": "#80cdc1",
 }
+
+RISK_CMAP = LinearSegmentedColormap.from_list(
+    "predictive_risk_red",
+    ["#fff7bc", "#fec44f", "#fb6a4a", "#de2d26", "#a50f15", "#4d0013"],
+)
 
 
 def load_full_dataset() -> tuple[pd.DataFrame, gpd.GeoDataFrame, dict]:
@@ -305,10 +310,10 @@ def render_frame(
         heatmap,
         extent=extent,
         origin="lower",
-        cmap="YlOrRd",
+        cmap=RISK_CMAP,
         norm=PowerNorm(gamma=args.heatmap_gamma, vmin=0, vmax=vmax),
         interpolation="bilinear",
-        alpha=0.92,
+        alpha=0.98,
         zorder=1,
     )
     boundary = gpd.GeoSeries([grid.geometry.union_all().boundary], crs=grid.crs)
@@ -438,8 +443,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fade-weeks", type=int, default=4)
     parser.add_argument("--pop-days", type=float, default=2.5)
     parser.add_argument("--smooth-sigma", type=float, default=1.8)
-    parser.add_argument("--vmax-quantile", type=float, default=0.995)
-    parser.add_argument("--heatmap-gamma", type=float, default=0.55)
+    parser.add_argument("--vmax-quantile", type=float, default=0.985)
+    parser.add_argument("--heatmap-gamma", type=float, default=0.4)
     parser.add_argument("--duration-ms", type=int, default=85)
     parser.add_argument("--dpi", type=int, default=85)
     parser.add_argument("--skip-gif", action="store_true")

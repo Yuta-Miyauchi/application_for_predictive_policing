@@ -38,6 +38,7 @@ Examples:
 ## Current Runners
 
 - `run_lapd_full_etas.py`: current pooled 21-area LAPD weekly ETAS runner. It writes one GIF plus replay tables for the full 2010-2024 legacy dataset.
+- `run_lapd_transformer_v1.py`: current PyTorch Transformer v1 runner. It trains on 2010-2019 weekly cell sequences and forecasts 2020-2024 weekly LAPD risk.
 - `animate_adaptive_forecast.py`: earlier GIF helper for daily adaptive ETAS animations on prepared small datasets.
 - `animate_etas_v2_forecast.py`: earlier marked ETAS v2 GIF runner for the three-division exploratory setup.
 
@@ -50,5 +51,6 @@ Current animation runs also write replay artifacts under each `results/<run_id>/
 - `forecast_cell_risk.parquet`
 - `forecast_top_cells.csv`
 - `forecast_group_risk.csv` for the current pooled LAPD run
+- `training_summary.yml` and `model/model_state.pt` for Transformer v1 runs
 - `forecast_cell_crime_risk.parquet` for earlier marked ETAS v2 runs
 - `observed_events.parquet`

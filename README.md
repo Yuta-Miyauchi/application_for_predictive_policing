@@ -53,12 +53,14 @@ Implemented model utilities:
 
 - `adaptive_etas`
 - `marked_adaptive_etas`
+- `temporal_attention_transformer`
 
 Current experiment outputs:
 
 - Previous ETAS results were removed.
 - The current ETAS rerun uses a pooled 21-area LAPD legacy dataset and weekly forecast frames.
-- The current GIF is committed as the published visual result.
+- Transformer v1 uses a compact PyTorch `TransformerEncoder`: train on 2010-2019 weekly cell histories, forecast 2020-2024 weekly risk.
+- The current ETAS and Transformer v1 GIFs are committed as the published visual results.
 - Each run keeps the GIF plus replay tables needed to reproduce the animation and inspect forecast values.
 - Metric design is deferred until a clearer evaluation strategy is chosen.
 
@@ -98,6 +100,12 @@ Run the current weekly ETAS experiment:
 .venv/bin/python -u experiments/run_lapd_full_etas.py
 ```
 
+Run the current Transformer v1 experiment:
+
+```bash
+.venv/bin/python -u experiments/run_lapd_transformer_v1.py
+```
+
 The run writes local outputs under:
 
 ```text
@@ -108,6 +116,24 @@ The ETAS run writes:
 
 - `animations/M6_pooled_lapd_weekly_online_etas_fixed_theta_weekly_forecast_heatmap.gif`
 - `tables/animation_config.yml`
+- `tables/forecast_frames.csv`
+- `tables/forecast_cell_risk.parquet`
+- `tables/forecast_top_cells.csv`
+- `tables/forecast_group_risk.csv`
+- `tables/observed_events.parquet`
+
+The Transformer v1 run writes local outputs under:
+
+```text
+results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/
+```
+
+The Transformer v1 run writes:
+
+- `animations/T1_temporal_attention_transformer_v1_weekly_forecast_heatmap.gif`
+- `model/model_state.pt`
+- `tables/animation_config.yml`
+- `tables/training_summary.yml`
 - `tables/forecast_frames.csv`
 - `tables/forecast_cell_risk.parquet`
 - `tables/forecast_top_cells.csv`

@@ -8,8 +8,10 @@ Models should be reusable across datasets. A model should accept standardized pr
 
 - `adaptive_etas`
 - `marked_adaptive_etas`
+- `temporal_attention_transformer`
 
 The current retained ETAS experiment is a pooled 21-area LAPD run with fixed public-scaffold ETAS parameters and weekly online state updates.
+The current Transformer v1 experiment is a compact PyTorch encoder over weekly cell histories, with learned area embeddings and a Poisson output head.
 
 ## Planned Model Families
 
@@ -47,3 +49,16 @@ The current retained ETAS experiment is a pooled 21-area LAPD run with fixed pub
 - total cell risk for heatmaps plus per-crime risk tables for inspection
 
 `experiments/run_lapd_full_etas.py` currently implements the large pooled replay directly for memory-efficient weekly table writing. It keeps `crime_group` risk totals for inspection while using total cell risk for the GIF heatmap.
+
+## Transformer v1 Notes
+
+`models/temporal_attention_transformer.py` defines `WeeklyCellTransformer`, a first PyTorch scaffold for moving toward STNPP-style marked point process models:
+
+- weekly cell-count sequence tokens
+- learned temporal positional embeddings
+- LAPD area embeddings
+- normalized spatial centroid features
+- seasonal forecast-week features
+- nonnegative next-week expected-count output trained with weighted Poisson loss
+
+This v1 is intentionally small enough to run on CPU. It does not yet model event-level continuous time, spatial network edges, or full crime-type marks inside the transformer.
