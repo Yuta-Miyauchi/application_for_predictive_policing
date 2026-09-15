@@ -20,9 +20,8 @@ Use IDs that make the dataset and model clear.
 
 Examples:
 
-- `lapd_foothill_burglary_adaptive_etas_2012_trial`
-- `chicago_districtXX_burglary_adaptive_etas_external`
-- `philadelphia_burglary_hunchlab_like_history_only`
+- `lapd_legacy_2010_2024_pooled_etas_weekly`
+- `lapd_legacy_2010_2024_transformer_weekly`
 
 ## Required Experiment Metadata
 
@@ -38,8 +37,9 @@ Examples:
 
 ## Current Runners
 
-- `animate_adaptive_forecast.py`: GIF animation of smoothed forecast heatmaps and fading red event bursts.
-- `run_all_gif_experiments.py`: batch runner that creates the same GIF and replay tables for all currently prepared datasets.
+- `run_lapd_full_etas.py`: current pooled 21-area LAPD weekly ETAS runner. It writes one GIF plus replay tables for the full 2010-2024 legacy dataset.
+- `animate_adaptive_forecast.py`: earlier GIF helper for daily adaptive ETAS animations on prepared small datasets.
+- `animate_etas_v2_forecast.py`: earlier marked ETAS v2 GIF runner for the three-division exploratory setup.
 
 Metric runners are intentionally absent for now. Metric design will be added later when the evaluation criteria are clearer.
 
@@ -49,4 +49,6 @@ Current animation runs also write replay artifacts under each `results/<run_id>/
 - `forecast_frames.csv`
 - `forecast_cell_risk.parquet`
 - `forecast_top_cells.csv`
+- `forecast_group_risk.csv` for the current pooled LAPD run
+- `forecast_cell_crime_risk.parquet` for earlier marked ETAS v2 runs
 - `observed_events.parquet`

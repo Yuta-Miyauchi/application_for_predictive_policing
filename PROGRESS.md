@@ -14,22 +14,7 @@ Created the top-level structure:
 - `results/`
 - `project_sources/`
 
-### Prepared Datasets
-
-Prepared LAPD variants:
-
-- `lapd_foothill_burglary_2011_2013_grid150m_h24h`
-- `lapd_n_hollywood_burglary_2011_2013_grid150m_h24h`
-- `lapd_southwest_burglary_2011_2013_grid150m_h24h`
-- `lapd_foothill_vehicle_stolen_2011_2013_grid150m_h24h`
-- `lapd_n_hollywood_vehicle_stolen_2011_2013_grid150m_h24h`
-- `lapd_southwest_vehicle_stolen_2011_2013_grid150m_h24h`
-
-Prepared Chicago variant:
-
-- `chicago_district011_burglary_2011_2013_grid150m_h24h`
-
-Datasets are stored separately with raw data, processed data, and metadata.
+Early LAPD, Chicago, and Philadelphia trial datasets/results were later retired. The current repository state focuses on the full LAPD legacy dataset and keeps `datas/` out of Git.
 
 ## 2026-09-15
 
@@ -41,22 +26,32 @@ Added and used the revised adaptive ETAS project source:
 
 The document is treated as project reference material, not as direct executable instruction.
 
+Added a later research source for future STNPP / transformer-like marked point process work:
+
+- `project_sources/2409.10882v2.pdf`
+
+This source was reviewed for planning. It has not yet been implemented as a model in this project.
+
 ### Current Implementation
 
 Current retained implementation:
 
 - `models/adaptive_etas.py`
+- `models/marked_adaptive_etas.py`
 - `experiments/common.py`
 - `experiments/animate_adaptive_forecast.py`
-- `experiments/run_all_gif_experiments.py`
+- `experiments/animate_etas_v2_forecast.py`
+- `experiments/run_lapd_full_etas.py`
+- `datas/lapd_full/prepare_lapd_legacy_full.py` locally under ignored `datas/`
 
 Removed or retired:
 
-- non-adaptive baseline/fixed ETAS experiment results
-- v1 adaptive result directory
+- Philadelphia and Chicago local data/results
+- earlier LAPD small-area experiment results
+- previous ETAS_v1 / ETAS_v2 result folders
 - static diagnostic plots
-- current metric CSVs and summaries
-- metric/backtest runner artifacts
+- metric CSVs and summaries
+- metric/backtest artifacts
 
 Rationale:
 
@@ -64,52 +59,74 @@ Rationale:
 - The project should not overcommit to weak or ambiguous metrics yet.
 - New metrics can be proposed later and implemented deliberately.
 
-### Current Results
+### Full LAPD Legacy Data
 
-Generated adaptive forecast GIF experiments for all currently prepared dataset variants:
+Prepared the current local dataset:
 
-- `results/lapd_foothill_burglary_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/lapd_n_hollywood_burglary_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/lapd_southwest_burglary_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/lapd_foothill_vehicle_stolen_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/lapd_n_hollywood_vehicle_stolen_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/lapd_southwest_vehicle_stolen_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
-- `results/chicago_district011_burglary_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial/`
+- `lapd_legacy_2010_2024_all_crimes_grid300m_h168h`
 
-Each run contains:
+Source files:
 
-- `animations/M4_adaptive_etas_weekly_theta_floor_forecast_heatmap.gif`
+- LA City Open Data `Crime Data from 2010 to 2019`
+- LA City Open Data `Crime Data from 2020 to 2024`
+- LA City GIS LAPD division boundaries
+
+Processing notes:
+
+- raw Socrata rows: 3,138,031
+- processed events: 3,061,145
+- LAPD areas: 21
+- detailed crime codes: 143
+- coarse crime groups: 10
+- grid: 14,659 cells at 300 m
+- forecast horizon: 168 hours
+- `crime_code`, `crime_type`, `crime_group`, `area_id`, and `area_name` are retained
+
+Important fix:
+
+- The LAPD boundary API must be paged. A non-paged request only returned the first 1000 boundary fragments and caused most `Olympic`, `Topanga`, and part of `Mission` to be dropped. The preparation script now pages the ArcGIS endpoint and dissolves fragments by LAPD area before assigning cells.
+
+### Current ETAS Result
+
+Generated the current pooled LAPD ETAS run:
+
+- `results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/`
+
+Model view:
+
+- `M6_pooled_lapd_weekly_online_etas_fixed_theta`
+
+Animation settings:
+
+- forecast period: 2010-01-01 to 2025-01-10 display end
+- frames: 784
+- frame interval: 7 days
+- forecast horizon: 168 hours
+- rolling background history: 365 days
+- theta: 0.35
+- omega: 1 / 14 days
+- event fade window: 4 weeks
+- heatmap: pooled red scale across all 21 areas
+- observed events: colored rings by `crime_group`
+
+Retained replay artifacts:
+
+- `animations/M6_pooled_lapd_weekly_online_etas_fixed_theta_weekly_forecast_heatmap.gif`
 - `tables/animation_config.yml`
 - `tables/forecast_frames.csv`
 - `tables/forecast_cell_risk.parquet`
 - `tables/forecast_top_cells.csv`
+- `tables/forecast_group_risk.csv`
 - `tables/observed_events.parquet`
 
-The table outputs are retained as replay and inspection artifacts, not as evaluation metrics. In particular:
+Verification:
 
-- `animation_config.yml` records the dataset, model, dates, and GIF rendering parameters.
-- `forecast_frames.csv` records one row per forecast frame.
-- `forecast_cell_risk.parquet` records the per-frame, per-cell forecast risk components.
-- `forecast_top_cells.csv` records the top predicted cells per frame.
-- `observed_events.parquet` records the observed events used for the red burst/fade overlay.
-
-Animation settings:
-
-- datasets: all 7 prepared variants listed above
-- model view: `M4_adaptive_etas_weekly_theta_floor`
-- forecast period: 2012-05-16 to 2013-01-10
-- frames: 239
-- frame interval: every day
-- GIF duration per frame: 90 ms
-- red event fade window: 14 days
-- red event pop window: 1.5 days
-- smoothing sigma for prediction heatmap: 2.4 grid cells
-
-Animation design:
-
-- heatmap shows predicted expected events for the next 24 hours
-- prediction is rasterized from grid risk and smoothed into a continuous heatmap
-- red burst circles show observed crimes; they appear large at occurrence time and fade as they age
+- GIF frames: 784
+- `forecast_frames.csv`: 784 rows
+- `forecast_cell_risk.parquet`: 11,492,656 rows
+- `forecast_top_cells.csv`: 78,400 rows
+- `forecast_group_risk.csv`: 7,840 rows
+- `observed_events.parquet`: 3,061,145 rows
 
 ### Deferred Work
 

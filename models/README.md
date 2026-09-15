@@ -7,8 +7,9 @@ Models should be reusable across datasets. A model should accept standardized pr
 ## Implemented Model Family
 
 - `adaptive_etas`
+- `marked_adaptive_etas`
 
-The current experiments still include baseline-like comparison conditions such as `M0_historical_count`, but those conditions are implemented inside the adaptive experiment runner so the evaluation order stays consistent.
+The current retained ETAS experiment is a pooled 21-area LAPD run with fixed public-scaffold ETAS parameters and weekly online state updates.
 
 ## Planned Model Families
 
@@ -34,6 +35,15 @@ The current experiments still include baseline-like comparison conditions such a
 
 - same-cell triggering only
 - test-then-update evaluation
-- weekly 365-day refit
+- rolling 365-day background history
 - constrained theta/omega likelihood with branching-ratio background shrinkage
 - optional theta floor sensitivity run
+
+`models/marked_adaptive_etas.py` extends the same scaffold by preserving `crime_type` as a mark:
+
+- same-cell triggering with per-crime trigger states
+- crime-type-specific background rates
+- a lightweight source-to-target crime-type transition matrix
+- total cell risk for heatmaps plus per-crime risk tables for inspection
+
+`experiments/run_lapd_full_etas.py` currently implements the large pooled replay directly for memory-efficient weekly table writing. It keeps `crime_group` risk totals for inspection while using total cell risk for the GIF heatmap.

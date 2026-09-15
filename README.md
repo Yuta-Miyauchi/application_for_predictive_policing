@@ -8,13 +8,13 @@ Predictive Policing の場所型犯罪予測モデルを、公開データで再
 
 ```text
 datas/
-  Prepared datasets and dataset-specific metadata.
+  Local prepared datasets and dataset-specific metadata. This folder is git-ignored.
 models/
   Algorithm implementations independent from a specific dataset.
 experiments/
   Experiment configs and scripts that combine one dataset with one model.
 results/
-  Experiment outputs. The current retained visual result is a GIF animation, with replay tables kept for reproducibility.
+  Local experiment outputs with GIF animations and replay tables.
 README.md
   Repository overview.
 PROGRESS.md
@@ -23,47 +23,58 @@ PROGRESS.md
 
 ## Basic Policy
 
-- `datas` contains dataset variants separately. LAPD variants, Chicago variants, Philadelphia variants, and future datasets should not be merged into one master table by default.
+- `datas` contains local dataset variants and is excluded from Git. Raw and processed data should stay local unless a separate data-versioning policy is chosen.
 - `models` contains reusable algorithm implementations. Model code should not assume a specific city or source dataset.
 - `experiments` selects a dataset and a model, then runs a reproducible evaluation.
-- `results` stores outputs by run ID. Current visual artifacts are intentionally GIF-focused; replay parameters and forecast tables are retained.
+- `results` stores outputs by run ID and version. Current visual artifacts are intentionally GIF-focused; replay parameters and forecast tables are retained.
 - `PROGRESS.md` is updated whenever a dataset, model, experiment, or result is added.
 
 ## Initial Scope
 
 The first planned reproduction target is a location-based, PredPol-like ETAS model based on public algorithmic descriptions, not a full reproduction of any commercial product.
 
-The initial dataset candidates are:
-
-- LAPD public crime data, with multiple variants by division, crime type, period, grid size, and forecast horizon.
-- Chicago public crime data for external reproduction.
-- Philadelphia public crime incidents for a later HunchLab-like experiment.
+The current dataset focus is LAPD legacy public crime data. Chicago and Philadelphia were removed from the local workspace for now.
 
 This project does not create individual risk scores and does not claim that model accuracy alone evaluates policing effectiveness or social impact.
 
 ## Current Status
 
-Prepared dataset variants:
+Prepared local dataset target:
 
-- 6 LAPD variants:
-  - Foothill / N Hollywood / Southwest
-  - BURGLARY / VEHICLE - STOLEN
-  - 2011-01-01 to 2013-01-11
-  - 150 m grid, 24 hour forecast horizon
-- 1 Chicago variant:
-  - District 011 / BURGLARY
-  - 2011-01-01 to 2013-01-11
-  - 150 m grid, 24 hour forecast horizon
+- `lapd_legacy_2010_2024_all_crimes_grid300m_h168h`
+  - combines LA City Open Data `Crime Data from 2010 to 2019` and `Crime Data from 2020 to 2024`
+  - contains 3,061,145 processed events after deduplication, datetime/coordinate cleaning, and LAPD boundary assignment
+  - includes all 21 LAPD areas, 143 detailed crime codes, and 10 coarse crime groups
+  - preserves `crime_code`, `crime_type`, `crime_group`, and `area_id`
+  - assigns events to 14,659 cells on a 300 m grid over paged and dissolved LAPD division boundaries
+  - uses a 168 hour forecast horizon for weekly ETAS visualization
 
 Implemented model utilities:
 
 - `adaptive_etas`
+- `marked_adaptive_etas`
 
 Current experiment outputs:
 
-- Adaptive forecast GIFs have been generated for all 7 prepared dataset variants.
-- Each run keeps the GIF plus replay tables needed to reproduce the animation and inspect the forecast values.
+- Previous ETAS results were removed.
+- The current ETAS rerun uses a pooled 21-area LAPD legacy dataset and weekly forecast frames.
+- Each run keeps the GIF plus replay tables needed to reproduce the animation and inspect forecast values.
 - Metric design is deferred until a clearer evaluation strategy is chosen.
+
+## Local Dataset Policy
+
+`datas/` is ignored by Git. The local preparation scripts under `datas/` do the following:
+
+- download the two LAPD legacy Socrata datasets in paged chunks
+- preserve raw chunk parquet files locally
+- clean occurrence dates, 24 hour occurrence times, coordinates, area IDs, and crime codes
+- remove duplicate `DR_NO` rows, invalid datetimes, invalid `(0, 0)` or out-of-bounds coordinates, and points outside LAPD division boundaries
+- fetch LAPD division boundaries from LA City GIS with ArcGIS paging, then dissolve the boundary fragments into LAPD areas
+- create a 300 m grid clipped to the union of LAPD division boundaries
+- spatially assign each event to a grid cell
+- write processed events, grid, boundaries, metadata, and cleaning summaries
+
+The processed data is intentionally not committed to GitHub.
 
 ## Reproduction Commands
 
@@ -74,60 +85,36 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Prepare LAPD variants:
+Prepare the full local LAPD legacy dataset with the local-only script under ignored `datas/`:
 
 ```bash
-.venv/bin/python datas/lapd/prepare_lapd_variants.py --overwrite
+.venv/bin/python datas/lapd_full/prepare_lapd_legacy_full.py --overwrite
 ```
 
-Prepare the first Chicago variant:
+Run the current weekly ETAS experiment:
 
 ```bash
-.venv/bin/python datas/chicago/prepare_chicago_variants.py --overwrite
+.venv/bin/python -u experiments/run_lapd_full_etas.py
 ```
 
-Create adaptive forecast GIFs for all prepared datasets:
+The run writes local outputs under:
 
-```bash
-.venv/bin/python -u experiments/run_all_gif_experiments.py
+```text
+results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/
 ```
 
-Create one adaptive forecast GIF:
+The ETAS run writes:
 
-```bash
-.venv/bin/python -u experiments/animate_adaptive_forecast.py \
-  --dataset-id lapd_foothill_burglary_2011_2013_grid150m_h24h \
-  --run-id lapd_foothill_burglary_2011_2013_grid150m_h24h_adaptive_etas_gif_2012_trial \
-  --model-id M4_adaptive_etas_weekly_theta_floor \
-  --start 2012-05-16 \
-  --end 2013-01-10 \
-  --history-days 365 \
-  --horizon-hours 24 \
-  --top-k 20 \
-  --refit-days 7 \
-  --fixed-theta 0.35 \
-  --fixed-omega 0.07142857142857142 \
-  --theta-floor 0.05 \
-  --fade-days 14 \
-  --pop-days 1.5 \
-  --smooth-sigma 2.4 \
-  --frame-step 1 \
-  --duration-ms 90 \
-  --dpi 90
-```
-
-Each run writes:
-
-- `animations/M4_adaptive_etas_weekly_theta_floor_forecast_heatmap.gif`
+- `animations/M6_pooled_lapd_weekly_online_etas_fixed_theta_weekly_forecast_heatmap.gif`
 - `tables/animation_config.yml`
 - `tables/forecast_frames.csv`
 - `tables/forecast_cell_risk.parquet`
 - `tables/forecast_top_cells.csv`
+- `tables/forecast_group_risk.csv`
 - `tables/observed_events.parquet`
 
 ## Data Sources
 
-- LA City Open Data: `https://data.lacity.org/resource/63jg-8b9z.json`
+- LA City Crime Data from 2010 to 2019: `https://data.lacity.org/resource/63jg-8b9z.json`
+- LA City Crime Data from 2020 to 2024: `https://data.lacity.org/resource/2nrs-mtv8.json`
 - LA City LAPD division boundaries: `https://maps.lacity.org/arcgis/rest/services/Mapping/Boundaries/MapServer/11`
-- City of Chicago crimes: `https://data.cityofchicago.org/resource/ijzp-q8t2.json`
-- City of Chicago police district boundaries: `https://data.cityofchicago.org/resource/9vmg-9p8p.geojson`

@@ -5,8 +5,9 @@ __pycache__/
 .matplotlib-cache/
 .DS_Store
 
+# Local prepared and raw datasets. The root README documents how these are made.
+datas/
+
 # Scratch or retired experiment outputs.
 results/*
 !results/README.md
-!results/*_adaptive_etas_gif_2012_trial/
-!results/*_adaptive_etas_gif_2012_trial/**
