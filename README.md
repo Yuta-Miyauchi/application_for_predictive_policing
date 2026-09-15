@@ -47,20 +47,31 @@ Prepared local dataset target:
   - includes all 21 LAPD areas, 143 detailed crime codes, and 10 coarse crime groups
   - preserves `crime_code`, `crime_type`, `crime_group`, and `area_id`
   - assigns events to 14,659 cells on a 300 m grid over paged and dissolved LAPD division boundaries
-  - uses a 168 hour forecast horizon for weekly ETAS visualization
+  - remains the source dataset for experiment-specific derived grids and target-crime subsets
+
+Current experiment-derived local dataset:
+
+- `lapd_legacy_2010_2024_mohler_target_crimes_grid150m_h24h`
+  - derived from the full LAPD legacy dataset under ignored `datas/`
+  - keeps Mohler et al.'s Los Angeles target-crime families: burglary, car theft, and theft from vehicle
+  - contains 919,284 target-crime events
+  - assigns target-crime events to 150 m cells
+  - includes 56,927 cells across all 21 LAPD areas
+  - keeps `target_crime`, original LAPD crime labels, and cell-based LAPD area assignment
+  - uses a 24 hour forecast horizon for the current ETAS and STNPP-GAT GIFs
 
 Implemented model utilities:
 
 - `adaptive_etas`
 - `marked_adaptive_etas`
-- `temporal_attention_transformer`
+- `stnpp_gat`
+- `temporal_attention_transformer`（旧v1スキャフォールド、現行結果では未使用）
 
 Current experiment outputs:
 
-- Previous ETAS results were removed.
-- The current ETAS rerun uses a pooled 21-area LAPD legacy dataset and weekly forecast frames.
-- Transformer v1 uses a compact PyTorch `TransformerEncoder`: train on 2010-2019 weekly cell histories, forecast 2020-2024 weekly risk.
-- The current ETAS and Transformer v1 GIFs are committed as the published visual results.
+- The current ETAS rerun is a Mohler-style target-crime experiment using 150 m cells, 365 day history, 24 hour horizon, and division-wise ETAS parameter refits.
+- The current Transformer/STNPP rerun replaces the earlier weekly `TransformerEncoder` baseline with an STNPP-GAT-style marked point process over crime-type x LAPD-area marks.
+- Both current runs forecast 2020-2024 target-crime risk and publish one all-area GIF each.
 - Each run keeps the GIF plus replay tables needed to reproduce the animation and inspect forecast values.
 - Metric design is deferred until a clearer evaluation strategy is chosen.
 
@@ -94,50 +105,50 @@ Prepare the full local LAPD legacy dataset with the local-only script under igno
 .venv/bin/python datas/lapd_full/prepare_lapd_legacy_full.py --overwrite
 ```
 
-Run the current weekly ETAS experiment:
+Run the current Mohler-style ETAS experiment:
 
 ```bash
-.venv/bin/python -u experiments/run_lapd_full_etas.py
+.venv/bin/python -u experiments/run_lapd_mohler_etas.py
 ```
 
-Run the current Transformer v1 experiment:
+Run the current STNPP-GAT-style experiment:
 
 ```bash
-.venv/bin/python -u experiments/run_lapd_transformer_v1.py
+.venv/bin/python -u experiments/run_lapd_stnpp_gat.py
 ```
 
 The run writes local outputs under:
 
 ```text
-results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/
+results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/
 ```
 
 The ETAS run writes:
 
-- `animations/M6_pooled_lapd_weekly_online_etas_fixed_theta_weekly_forecast_heatmap.gif`
+- `animations/M7_mohler_style_lapd_etas_24h_forecast_heatmap.gif`
 - `tables/animation_config.yml`
 - `tables/forecast_frames.csv`
 - `tables/forecast_cell_risk.parquet`
 - `tables/forecast_top_cells.csv`
-- `tables/forecast_group_risk.csv`
+- `tables/etas_area_parameters.csv`
 - `tables/observed_events.parquet`
 
-The Transformer v1 run writes local outputs under:
+The STNPP-GAT run writes local outputs under:
 
 ```text
-results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/
+results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/
 ```
 
-The Transformer v1 run writes:
+The STNPP-GAT run writes:
 
-- `animations/T1_temporal_attention_transformer_v1_weekly_forecast_heatmap.gif`
+- `animations/T2_stnpp_gat_marked_point_process_24h_forecast_heatmap.gif`
 - `model/model_state.pt`
 - `tables/animation_config.yml`
 - `tables/training_summary.yml`
 - `tables/forecast_frames.csv`
 - `tables/forecast_cell_risk.parquet`
 - `tables/forecast_top_cells.csv`
-- `tables/forecast_group_risk.csv`
+- `tables/learned_mark_transition.csv`
 - `tables/observed_events.parquet`
 
 ## Data Sources

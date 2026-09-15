@@ -10,18 +10,17 @@ datas/
 
 # Scratch or retired experiment outputs.
 results/*
-!results/README.md
-!results/ETAS_full/
-results/ETAS_full/*
-!results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/
-results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/*
-!results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/animations/
-results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/animations/*
-!results/ETAS_full/lapd_legacy_2010_2024_pooled_etas_weekly/animations/M6_pooled_lapd_weekly_online_etas_fixed_theta_weekly_forecast_heatmap.gif
-!results/Transformer_v1/
-results/Transformer_v1/*
-!results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/
-results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/*
-!results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/animations/
-results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/animations/*
-!results/Transformer_v1/lapd_legacy_2020_2024_transformer_v1_weekly/animations/T1_temporal_attention_transformer_v1_weekly_forecast_heatmap.gif
+!results/ETAS_mohler/
+results/ETAS_mohler/*
+!results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/
+results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/*
+!results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/animations/
+results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/animations/*
+!results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/animations/M7_mohler_style_lapd_etas_24h_forecast_heatmap.gif
+!results/STNPP_GAT/
+results/STNPP_GAT/*
+!results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/
+results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/*
+!results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/animations/
+results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/animations/*
+!results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/animations/T2_stnpp_gat_marked_point_process_24h_forecast_heatmap.gif
