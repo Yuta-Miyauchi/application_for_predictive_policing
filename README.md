@@ -58,6 +58,7 @@ Current experiment outputs:
 
 - Previous ETAS results were removed.
 - The current ETAS rerun uses a pooled 21-area LAPD legacy dataset and weekly forecast frames.
+- The current GIF is committed as the published visual result.
 - Each run keeps the GIF plus replay tables needed to reproduce the animation and inspect forecast values.
 - Metric design is deferred until a clearer evaluation strategy is chosen.
 

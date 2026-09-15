@@ -22,4 +22,4 @@ results/
         observed_events.parquet
 ```
 
-Large generated artifacts should stay out of Git unless they are intentionally selected for publication.
+Large generated artifacts should stay out of Git unless they are intentionally selected for publication. The current pooled LAPD ETAS GIF is tracked as the published visual result; replay tables remain local.
