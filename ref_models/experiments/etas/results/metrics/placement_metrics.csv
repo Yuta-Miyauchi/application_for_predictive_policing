@@ -1,0 +1,4 @@
+model,model_label,q,allocation_gini,selected_cell_frame_share
+etas_ref,Reference ETAS,0.01,0.9829503720492994,0.010012823440546666
+etas_ref,Reference ETAS,0.05,0.9243757064744282,0.050011418131993605
+etas_ref,Reference ETAS,0.1,0.8600747634111789,0.10000526990707397

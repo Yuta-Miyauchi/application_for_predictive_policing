@@ -1,0 +1,58 @@
+metric,status,output,note
+Hit Count,computed,hotspot_frame_metrics.csv,Computed for q=1%..10%.
+Hit Rate,computed,hotspot_frame_metrics.csv,Equivalent to Gain/Recall@q.
+Miss Rate,computed,hotspot_frame_metrics.csv,1 - Hit Rate.
+Area Coverage,computed,hotspot_frame_metrics.csv,Uses actual selected cell area.
+Hotspot Density,computed,hotspot_frame_metrics.csv,Reported per km2.
+PAI,computed,hotspot_frame_metrics.csv,Hit Rate / Area Coverage.
+RRI,computed,rri_frame_metrics.csv,Uses consecutive forecast frames and the same selected region.
+PEI*,computed,hotspot_frame_metrics.csv,Oracle region uses realized cell crime density.
+Gain@q / Recall@q,computed,hotspot_frame_metrics.csv,Same value as Hit Rate.
+Lift@q,computed,hotspot_frame_metrics.csv,Same value as PAI under area-based q.
+Precision@k,computed,precision_at_k_frame_metrics.csv,"k=(20, 50, 100, 500)."
+Hit-rate curve,computed,plots/hit_rate_curve.png,q=1%..10%.
+PAI curve,computed,plots/pai_curve.png,q=1%..10%.
+Area Under Hitrate Curve,computed,summary_metrics.csv,Trapezoid over q=1%..10%.
+IoU / Jaccard,computed,hotspot_frame_metrics.csv,Predicted region vs same-area oracle region.
+Dice,computed,hotspot_frame_metrics.csv,Predicted region vs same-area oracle region.
+Centroid Distance,computed,count_probability_frame_metrics.csv,Risk-weighted vs realized count-weighted centroid.
+Accuracy,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+Recall / TPR,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+Specificity / TNR,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+Precision / PPV,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+FPR,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+FNR,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+F1,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+Balanced Accuracy,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+MCC,computed,classification_frame_metrics.csv,Top-q region is predicted positive.
+ROC-AUC,computed,count_probability_frame_metrics.csv,Uses cell risk as score.
+PR-AUC / Average Precision,computed,count_probability_frame_metrics.csv,Uses cell risk as score.
+MAE,computed,count_probability_frame_metrics.csv,Cell-frame count error.
+RMSE,computed,count_probability_frame_metrics.csv,Cell-frame count error.
+Poisson Deviance,computed,count_probability_frame_metrics.csv,Cell-frame count error.
+RMSLE,computed,count_probability_frame_metrics.csv,Cell-frame count error.
+MASE,computed,count_probability_frame_metrics.csv,Naive baseline is 2010-2019 cell daily mean.
+R2,computed,count_probability_frame_metrics.csv,Cell-frame count error.
+Pearson,computed,count_probability_frame_metrics.csv,Cell-frame count/risk correlation.
+Spearman,computed,count_probability_frame_metrics.csv,Cell-frame count/risk rank correlation.
+Residual Moran's I,computed_no_pvalue,count_probability_frame_metrics.csv,Rook adjacency; permutation p-value not computed.
+Log Loss,computed,count_probability_frame_metrics.csv,Probability p=1-exp(-expected count).
+Brier Score,computed,count_probability_frame_metrics.csv,Probability p=1-exp(-expected count).
+Calibration Curve,computed,calibration_bins.csv,Equal-frequency bins.
+ECE,computed,summary_metrics.csv,Weighted mean absolute calibration error.
+O/E ratio,computed,count_probability_frame_metrics.csv,Probability and count versions are reported.
+Test LogLikelihood,approximated,summary_metrics.csv,"Binned Poisson test log-likelihood, not continuous point-process LL."
+AIC,not_computed,,Requires training log-likelihood and comparable parameter count; not saved for all models.
+BIC,not_computed,,Requires training log-likelihood and comparable parameter count; not saved for all models.
+N(t) and Lambda(t),computed,cumulative_intensity.csv,Computed over forecast frames.
+Cumulative intensity error,computed,summary_metrics.csv,RMSE and max absolute cumulative error over forecast frames.
+Time-rescaling KS,not_computed,,Requires continuous integrated intensity between events; current outputs are 14-day-spaced 24h snapshots.
+Next-event Time MAE,not_computed,,Current models do not output a next-event time prediction.
+Next-event Location MAE,not_computed,,Current models do not output a next-event location prediction.
+Type Macro-F1,not_computed,,"Current saved forecasts are total target-crime risk, not per-crime-type predicted labels."
+Allocation Share Gap,computed_area_proxy,area_proxy_frame_metrics.csv,"Uses LAPD area as subgroup, not demographic attributes."
+Allocation-to-Crime Ratio Gap,computed_area_proxy,area_proxy_frame_metrics.csv,"Uses LAPD area as subgroup, not demographic attributes."
+Subgroup FPR/FNR Gap,computed_area_proxy,area_proxy_frame_metrics.csv,"Uses LAPD area as subgroup, not demographic attributes."
+Subgroup Calibration,computed_area_proxy,area_calibration.csv,"Uses LAPD area as subgroup, not demographic attributes."
+Allocation Gini,computed,placement_metrics.csv,Cell-level selected-frame counts.
+Bias Amplification Slope,computed_area_proxy,summary_metrics.csv,Linear slope of area allocation-to-crime ratio gap over frame index.

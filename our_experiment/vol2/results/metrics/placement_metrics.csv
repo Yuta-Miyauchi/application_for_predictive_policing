@@ -1,0 +1,4 @@
+model,model_label,q,allocation_gini,selected_cell_frame_share
+our_vol2,Our vol2 ETAS-enhanced STNPP-GAT,0.01,0.9835493460032616,0.010012823440546666
+our_vol2,Our vol2 ETAS-enhanced STNPP-GAT,0.05,0.9251978817993345,0.050011418131993605
+our_vol2,Our vol2 ETAS-enhanced STNPP-GAT,0.1,0.8607356929881285,0.10000526990707397

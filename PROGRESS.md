@@ -11,14 +11,20 @@
 ```text
 datas/
   ローカルに準備したデータセット。Git管理外。
-models/
-  データセットに依存しない予測モデル実装。
-experiments/
-  データセットとモデルを組み合わせて実験するスクリプト。
-results/
-  GIF、予測表、設定表などの実験出力。
+metrics/
+  評価指標スクリプトを置く場所。出力は各モデルの results/metrics/ に保存する。
 project_sources/
   参照文献・仕様書。
+our_model/
+  root直下に置く、STNPP-GATをベースにした本プロジェクト独自モデル。改良ごとにvolを分ける。
+our_experiment/
+  root直下に置く、our_modelの実験コードと結果。モデルvolに対応して管理する。
+ref_models/
+  既存研究の再現実装。
+  models/
+    参照モデルごとの実装。
+  experiments/
+    参照モデルごとの実験コードと結果。
 README.md
   GitHub掲載用の概要。
 PROGRESS.md
@@ -47,9 +53,13 @@ datas/
 
 ### 実験管理方針
 
-`experiments/` は、1つのデータセットと1つのモデルを明示的に組み合わせる場所です。各実験は、dataset ID、model ID、学習または履歴期間、予測ホライズン、予測期間、top-kや重点区域数、乱数seed、出力先を明示する必要があります。
+`metrics/` は評価指標専用フォルダです。`our_model/` と `our_experiment/` は `metrics/` 配下ではなくroot直下に置き、今後STNPP-GATを改良していく本プロジェクト側の履歴として扱います。`our_model/vol1` を現在のSTNPP-GAT baselineとし、改良版は `vol2`, `vol3` のように増やします。対応する実験と結果は `our_experiment/vol*` に置きます。
 
-現在は評価メトリックの設計を保留しているため、metric runnerは作っていません。GIFと予測表は残しますが、それらを「モデルが社会的に有効である」証拠としては扱いません。
+`ref_models/` は既存研究の再現用です。参照モデル実装は `ref_models/models/<model_name>/`、その実験と結果は `ref_models/experiments/<model_name>/` に置きます。ETASはこの枠に移動しました。
+
+各実験は、dataset ID、model ID、学習または履歴期間、予測ホライズン、予測期間、top-kや重点区域数、乱数seed、出力先を明示する必要があります。
+
+`metrics/evaluate_current_results.py` は、現在のETAS、our_model vol1、our_model vol2の実験結果に対して、文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に挙げられた指標を可能な範囲で計算します。ただし、GIFや評価値を「モデルが社会的に有効である」証拠としては扱いません。介入効果、住民影響、feedback loopは別途検討が必要です。
 
 ## 1. LAPDデータセット
 
@@ -228,18 +238,18 @@ datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/lapd_leg
 
 ### 2.1 実装方針
 
-`models/` はデータ取得やクリーニングに依存しない実装を置く場所です。モデルは標準化されたイベント表とグリッド表を受け取り、セルごとの予測リスクまたは期待件数を返すことを目指します。
+モデル実装は、先行研究の再現と本プロジェクト独自モデルを分けて管理します。どちらもデータ取得やクリーニングには依存せず、標準化されたイベント表とグリッド表を受け取り、セルごとの予測リスクまたは期待件数を返すことを目指します。
 
 モデル固有パラメータは、できるだけ実験スクリプト側で指定します。解釈と再現のため、実行時設定、学習設定、モデル状態、予測表を保存します。
 
 現在の主なモデル実装:
 
-- `models/adaptive_etas.py`
-- `models/marked_adaptive_etas.py`
-- `models/stnpp_gat.py`
-- `models/temporal_attention_transformer.py`
+- `ref_models/models/etas/adaptive_etas.py`
+- `ref_models/models/etas/marked_adaptive_etas.py`
+- `our_model/vol1/stnpp_gat.py`
+- `our_model/vol2/etas_enhanced_stnpp_gat.py`
 
-`temporal_attention_transformer.py` は初期の週次Transformer v1スキャフォールドで、現行結果では使っていません。
+以前の週次Transformer v1スキャフォールドは現行構成から外しました。今後Transformer系を再開する場合は、STNPP-GATとの違いを明確にしたうえで、新しい `ref_models` または `our_model` のvolとして作り直します。
 
 将来候補:
 
@@ -274,15 +284,15 @@ Mohler論文における重要設定:
 - 実運用では1日1回、午前4時にETASパラメータを再推定する。
 - 各division / shiftごとに限られた数のprediction boxを提示する想定。
 
-本プロジェクトの現在のETAS実装:
+本プロジェクトの現在のETAS再現実装:
 
-- `models/adaptive_etas.py`
+- `ref_models/models/etas/adaptive_etas.py`
   - same-cell triggering
   - event-by-event state update
   - rolling 365-day background
   - theta / omega の制約付き尤度推定
   - branching-ratio的な背景率縮小を使う近似実装
-- `models/marked_adaptive_etas.py`
+- `ref_models/models/etas/marked_adaptive_etas.py`
   - `crime_type` をmarkとして保持できる拡張
   - crime-type別背景率
   - source-to-target crime-type transition matrix
@@ -321,14 +331,14 @@ Mohler論文における重要設定:
 - 学習はSGDで、batch size `M=3`、learning rate `eta=1.0`、epochs `E=1500`。
 - street-network distanceを使い、単純なEuclidean distanceより都市構造を反映する。
 
-本プロジェクトの現在のSTNPP-GAT実装:
+本プロジェクトの現在のSTNPP-GAT vol1実装:
 
-- `models/stnpp_gat.py`
+- `our_model/vol1/stnpp_gat.py`
   - markを `target_crime x LAPD area` として定義
   - 3犯罪種 x 21区域 = 63 marks
   - multi-head GATでsource markからtarget markへの励起確率を学習
   - 学習された遷移行列は、source列ごとに1へ正規化
-- `experiments/run_lapd_stnpp_gat.py`
+- `our_experiment/vol1/run_lapd_stnpp_gat.py`
   - 2010-2019の対象犯罪から同一150mセル内の近接遷移を集計
   - 経験的なsource-to-target mark transition matrixを作成
   - GATでその遷移行列を近似
@@ -359,9 +369,43 @@ Mohler論文における重要設定:
 - どの犯罪種・区域が他の犯罪種・区域を誘発しやすいかを、mark transitionとして点検できる。
 - 現状ではstreet networkがないため、完全なSTNPP再現というより、STNPPのGAT mark interaction部分を公開LAPDデータで動かす再現スキャフォールドである。
 
-### 2.4 退役したTransformer v1
+### 2.4 our_model vol2: ETAS-enhanced STNPP-GAT
 
-`models/temporal_attention_transformer.py` には、週次セルカウント列を入力する小型Transformerが残っています。
+`our_model/vol2/etas_enhanced_stnpp_gat.py` は、vol1のGAT mark interactionを維持しつつ、ETASから使いやすい部分を取り込んだ改良版です。
+
+採用したETAS由来の要素:
+
+- 区域ごとのrolling historyに基づく `theta` / `omega` の再推定。
+- 短期的なnear-repeat効果を指数減衰状態として扱う。
+- 背景率と自己励起成分を分け、自己励起の強さを区域ごとに変えられるようにする。
+
+vol2では、GATは「どの犯罪種・区域markがどのmarkへ影響しやすいか」を表し、ETAS由来の区域別 `theta` / `omega` は「その時点で自己励起がどれくらい強いか」を表します。つまり、mark間の向きはSTNPP-GATから、時間的な強弱の再調整はETASから借りています。
+
+現行実験のvol2パラメータ:
+
+- model ID: `O2_etas_enhanced_stnpp_gat`
+- marks: 63
+- attention heads: 8
+- hidden dimension: 64
+- dropout: 0.05
+- epochs: 1500
+- learning rate: 1.0
+- gradient clip: 5.0
+- empirical transition lookback: 30日
+- transition smoothing: 0.25
+- ETAS refit interval: 28日
+- ETAS initial theta: 0.35
+- ETAS initial omega: 1 / 14日
+- theta minimum: 0.01
+- background alpha: 0.001
+- forecast horizon: 24時間
+- display frame interval: 14日
+
+これは論文そのもののSTNPP完全再現ではありません。むしろ、今後の独自モデル開発で「GATによるmark interaction」と「ETASの逐次的な自己励起校正」を同時に扱うためのvol2です。
+
+### 2.5 退役したTransformer v1
+
+以前は、週次セルカウント列を入力する小型Transformer v1も試しました。
 
 特徴:
 
@@ -372,13 +416,13 @@ Mohler論文における重要設定:
 - 季節特徴量
 - weighted Poisson loss
 
-ただし、このモデルはイベントレベルの連続時間点過程ではなく、犯罪種markも十分に扱わないため、現行結果からは外しました。今後使う場合は、STNPPとの違いを明示したbaselineとして扱います。
+ただし、このモデルはイベントレベルの連続時間点過程ではなく、犯罪種markも十分に扱わないため、現行構成からは外しました。今後使う場合は、STNPPとの違いを明示したbaselineとして扱います。
 
 ## 3. 実験
 
 ### 3.1 実験共通設定
 
-現行実験は、同じ150m対象犯罪データに対して、ETASとSTNPP-GATを比較できる形で実行しました。
+現行実験は、同じ150m対象犯罪データに対して、参照モデルのETAS、our_model vol1のSTNPP-GAT、our_model vol2のETAS-enhanced STNPP-GATを比較できる形で実行しました。
 
 共通データ:
 
@@ -414,13 +458,13 @@ GIF表現:
 実行スクリプト:
 
 ```text
-experiments/run_lapd_mohler_etas.py
+ref_models/experiments/etas/run_lapd_mohler_etas.py
 ```
 
 出力先:
 
 ```text
-results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/
+ref_models/experiments/etas/results/
 ```
 
 設定:
@@ -476,13 +520,13 @@ results/ETAS_mohler/lapd_legacy_2020_2024_mohler_etas_target_150m/
 実行スクリプト:
 
 ```text
-experiments/run_lapd_stnpp_gat.py
+our_experiment/vol1/run_lapd_stnpp_gat.py
 ```
 
 出力先:
 
 ```text
-results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/
+our_experiment/vol1/results/
 ```
 
 設定:
@@ -547,7 +591,80 @@ results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/
 - 予測期待件数の範囲: 143.25 から 205.99
 - 表示フレーム上の観測事件合計: 23,166
 
-### 3.4 退役した実験
+### 3.4 our_model vol2実験
+
+実行スクリプト:
+
+```text
+our_experiment/vol2/run_lapd_etas_enhanced_stnpp_gat.py
+```
+
+出力先:
+
+```text
+our_experiment/vol2/results/
+```
+
+設定:
+
+- model ID: `O2_etas_enhanced_stnpp_gat`
+- train start: 2010-01-01
+- train end: 2020-01-01
+- forecast start: 2020-01-01
+- forecast end: 2025-01-01
+- forecast horizon: 24時間
+- history window: 365日
+- frame interval: 14日
+- marks: `target_crime x LAPD area`
+- number of marks: 63
+- GAT attention heads: 8
+- hidden dimension: 64
+- dropout: 0.05
+- epochs: 1500
+- learning rate: 1.0
+- gradient clip: 5.0
+- empirical transition lookback: 30日
+- transition smoothing: 0.25
+- ETAS refit interval: 28日
+- initial theta: 0.35
+- initial omega: 0.0714285714
+- theta minimum: 0.01
+- background alpha: 0.001
+- top-k table: 20 cells per frame
+
+予測内容:
+
+- 2010-2019の対象犯罪から、vol1と同じ方法でGAT mark transitionを学習する。
+- 2020-2024のforecast cutoffごとに、区域単位で直近365日のETAS `theta` / `omega` を再推定する。
+- 各セルでは、背景率、GATによるmark間励起、区域ごとのETAS自己励起強度を組み合わせて24時間先リスクを計算する。
+- 区域ごとの再推定を行っていても、表示は全LAPD区域を1枚のGIFへ統合する。
+
+保持している出力:
+
+- `animations/O2_etas_enhanced_stnpp_gat_24h_forecast_heatmap.gif`
+- `model/model_state.pt`
+- `tables/animation_config.yml`
+- `tables/training_summary.yml`
+- `tables/area_etas_parameters.csv`
+- `tables/forecast_frames.csv`
+- `tables/forecast_cell_risk.parquet`
+- `tables/forecast_top_cells.csv`
+- `tables/learned_mark_transition.csv`
+- `tables/observed_events.parquet`
+
+確認結果:
+
+- GIFフレーム数: 131
+- GIFサイズ: 13,764,150 bytes
+- `forecast_frames.csv`: 131行
+- `forecast_top_cells.csv`: 2,620行
+- `area_etas_parameters.csv`: 2,751行
+- `learned_mark_transition.csv`: 63 x 63 の遷移係数
+- GAT transition KL loss: 3.119379 から 2.577063
+- 予測期待件数の範囲: 141.70 から 201.57
+- 表示フレーム上の観測事件合計: 23,166
+
+### 3.5 退役した実験
 
 以下は退役または参考用です。
 
@@ -557,7 +674,70 @@ results/STNPP_GAT/lapd_legacy_2020_2024_stnpp_gat_target_150m/
 - 静的診断プロット
 - metric CSVやbacktest summary
 
-今回の方針では、古い結果を保持するよりも、ETASとTransformer/STNPPの両方を論文寄りに置き換えることを優先しました。
+今回のファイル整理では、古い結果を保持するよりも、参照モデル再現と本プロジェクト独自モデルの改良履歴を分けることを優先しました。
+
+### 3.6 評価指標実験
+
+追加文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に基づき、現在の3実験に対して評価指標をまとめて計算しました。
+
+実行スクリプト:
+
+```text
+metrics/evaluate_current_results.py
+```
+
+対象モデル:
+
+- `Reference ETAS`
+- `Our vol1 STNPP-GAT`
+- `Our vol2 ETAS-enhanced STNPP-GAT`
+
+主な出力:
+
+各モデルの `results/metrics/` に、モデル単位の評価表と単体プロットを保存します。モデル横断の比較プロットは生成せず、比較が必要な場合は各モデルの `summary_metrics.csv` を後から読み込んで行います。
+
+- `ref_models/experiments/etas/results/metrics/`
+- `our_experiment/vol1/results/metrics/`
+- `our_experiment/vol2/results/metrics/`
+
+各ディレクトリに含める主な出力:
+
+- `summary_metrics.csv`
+- `metric_applicability.csv`
+- `hotspot_frame_metrics.csv`
+- `classification_frame_metrics.csv`
+- `count_probability_frame_metrics.csv`
+- `calibration_bins.csv`
+- `cumulative_intensity.csv`
+- `area_proxy_frame_metrics.csv`
+- `plots/*.png`
+
+計算した指標:
+
+- Hotspot / ranking: Hit Count, Hit Rate, Miss Rate, Area Coverage, Hotspot Density, PAI, RRI, PEI*, Gain@q, Lift@q, Precision@k, Hit-rate curve, PAI curve, Area Under Hitrate Curve, IoU/Jaccard, Dice, Centroid Distance
+- Binary classification: Accuracy, Recall/TPR, Specificity/TNR, Precision/PPV, FPR, FNR, F1, Balanced Accuracy, MCC, ROC-AUC, PR-AUC
+- Count / rate: MAE, RMSE, Poisson Deviance, RMSLE, MASE, R2, Pearson, Spearman, Residual Moran's I
+- Probability: Log Loss, Brier Score, Calibration Curve, ECE, O/E ratio
+- Point-process proxy: binned Poisson test log-likelihood, N(t) and Lambda(t), cumulative intensity error
+- Area proxy fairness/burden: Allocation Share Gap, Allocation-to-Crime Ratio Gap, Subgroup FPR/FNR Gap, Subgroup Calibration, Allocation Gini, Bias Amplification Slope
+
+現状で計算しなかった指標:
+
+- AIC / BIC: 全モデルで比較可能なtrain log-likelihoodとパラメータ数を保存していない。
+- Time-rescaling KS: 現在の保存結果は14日間隔の24時間予測スナップショットであり、イベント間の連続時間積分強度を持っていない。
+- Next-event Time MAE / Location MAE: 次イベントの時刻・位置を直接出力していない。
+- Type Macro-F1: 保存済み予測は対象犯罪全体の総リスクであり、犯罪種別の予測ラベルではない。
+
+主な確認結果:
+
+- Hit Rate@5% は、ETAS 0.399、vol1 0.402、vol2 0.401。
+- PAI@5% は、ETAS 7.98、vol1 8.05、vol2 8.01。
+- PR-AUC は、ETAS 0.0316、vol1 0.0316、vol2 0.0313。
+- Brier Score は3モデルとも約0.00297。
+- binned Poisson log-likelihood/event は、ETAS -6.239、vol1 -6.122、vol2 -6.121。
+- 累積強度RMSEは、ETAS 278.7、vol1 370.9、vol2 219.7。
+
+PEI* は今回の24時間窓ではHit Rateとほぼ同じ値になります。これは、1%面積でも実現犯罪セル数に対して十分大きく、事後的な最良領域がほぼ全犯罪を含められるためです。より厳しいPEI*比較をしたい場合は、より小さい面積率、短いセルサイズ、または犯罪種別・時間帯別の評価が必要です。
 
 ## 4. 限界と未確認事項
 
@@ -591,22 +771,20 @@ Mohler論文では、ETASパラメータを1日1回午前4時に再推定し、�
 
 markは `crime type x LAPD area` にしています。論文のmark設計と同一とは限らず、より細かいlocation markやstreet-network node markを導入すると結果は変わる可能性があります。
 
+vol2はETASの逐次的な自己励起校正を取り入れていますが、STNPP本体の完全なlikelihood推定やstreet-network distance問題を解決したわけではありません。現時点では、ETAS由来の適応性をour_modelへ取り込むための最初の開発版です。
+
 ### 4.4 実験・評価の限界
 
-現在はGIFを中心にしています。GIFはモデル挙動を観察するには有用ですが、予測性能を定量的に判断するものではありません。
+現在はGIFとオフライン評価指標を併用しています。GIFはモデル挙動を観察するには有用ですが、予測性能や社会的妥当性を単独で判断するものではありません。評価指標も、観測犯罪データへの当てはまりを測るものであり、犯罪抑止効果や住民影響を直接測るものではありません。
 
-未実装の評価:
+まだ弱い評価:
 
-- hit rate
-- prediction efficiency index
-- precision / recall at top-k cells
-- calibration
-- spatial concentration
-- area burden
-- temporal stability
-- uncertainty
-- analyst baselineとの比較
-- patrol allocationを仮定した評価
+- AIC / BICやtime-rescaling KSのような、連続時間点過程としての厳密な適合診断。
+- 次イベントの時刻・位置・犯罪種を直接予測する指標。
+- 犯罪種別に分けた予測性能。現行保存結果は総リスク中心。
+- demographic属性に基づく公平性評価。現状はLAPD areaを代理群として使った負担評価に留まる。
+- analyst baselineやpatrol allocationを仮定した実運用比較。
+- 不確実性区間やbootstrap 95%信頼区間。
 
 また、Predictive Policingの有効性は、犯罪予測の当たり外れだけでは決まりません。警察活動の配置、住民への影響、既存の通報・取締りバイアス、地域負担の偏り、feedback loopを含めて検討する必要があります。
 
@@ -626,9 +804,11 @@ CPU実行を前提にしているため、論文通りの毎日再推定や完�
 - ETASに隣接セルまたは距離減衰の空間核を入れる。
 - STNPP-GATに道路ネットワーク距離を導入する。
 - STNPP-GATを経験的遷移行列近似ではなく、連続時間event-sequence NLLで学習する。
+- vol2を検証し、空間核、report delay、network distanceのいずれかを取り込んだvol3を作る。
 - report delayを考慮した実運用風のデータ利用時点を再現する。
-- 評価メトリックを設計する。
-- 予測の地域負担や集中度を可視化する。
+- 評価メトリックにbootstrap 95%信頼区間を追加する。
+- AIC/BIC、time-rescaling KS、next-event評価に必要なモデル出力を保存する。
+- 予測の地域負担や集中度を、人口・属性データと接続して評価する。
 - ChicagoやPhiladelphiaなど他都市データを再導入し、同じモデルを比較する。
 
 保留中の評価観点:
@@ -639,5 +819,5 @@ CPU実行を前提にしているため、論文通りの毎日再推定や完�
 - 注意の過度な集中
 - 事件が少ない週やゼロ件日の扱い
 - 地域ごとの負担の偏り
-- 不確実性とキャリブレーション
+- 不確実性とキャリブレーションの信頼区間
 - 現実的な分析官・巡回ベースラインとの比較
