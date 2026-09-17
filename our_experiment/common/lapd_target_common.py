@@ -21,7 +21,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import yaml
-from matplotlib.colors import LinearSegmentedColormap, PowerNorm
+from matplotlib.colors import LinearSegmentedColormap, PowerNorm, to_rgba
 from matplotlib.lines import Line2D
 from PIL import Image
 from scipy.ndimage import gaussian_filter
@@ -279,12 +279,12 @@ def write_forecast_tables(
     tables_dir = result_dir / "tables"
     tables_dir.mkdir(parents=True, exist_ok=True)
     config = {
-        "dataset_id": TARGET_DATASET_ID,
-        "source_dataset_id": SOURCE_DATASET_ID,
+        "dataset_id": dataset.metadata.get("dataset_id", TARGET_DATASET_ID),
+        "source_dataset_id": dataset.metadata.get("source_dataset_id", SOURCE_DATASET_ID),
         "model_id": model_id,
         "forecast_start": records[0]["forecast_date"].date().isoformat(),
         "forecast_end": records[-1]["display_time"].date().isoformat(),
-        "target_crimes": TARGET_CRIME_ORDER,
+        "target_crimes": dataset.metadata.get("target_crimes", TARGET_CRIME_ORDER),
         "cell_size_m": dataset.metadata["spatial"]["cell_size_m"],
         "horizon_hours": getattr(args, "horizon_hours", None),
         "history_days": getattr(args, "history_days", None),
@@ -383,6 +383,17 @@ def _event_trail_for_frame(
     return grouped
 
 
+def _raw_event_trail_for_frame(
+    events: pd.DataFrame,
+    display_time: pd.Timestamp,
+    fade_days: int,
+) -> pd.DataFrame:
+    return events[
+        (events["occurred_at"] < display_time)
+        & (events["occurred_at"] >= display_time - pd.Timedelta(days=fade_days))
+    ].dropna(subset=["x", "y"])
+
+
 def render_forecast_frame(
     grid: gpd.GeoDataFrame,
     boundaries: gpd.GeoDataFrame,
@@ -412,25 +423,54 @@ def render_forecast_frame(
     boundaries.boundary.plot(ax=ax, color="#505050", linewidth=0.33, alpha=0.78, zorder=3)
 
     display_time = pd.Timestamp(record["display_time"])
-    trail = _event_trail_for_frame(grid, events, display_time, args.fade_days)
-    if not trail.empty:
-        ages = (display_time - trail["latest"]).dt.total_seconds() / 86400.0
-        fade = np.clip(1.0 - ages / max(args.fade_days, 1), 0.0, 1.0)
-        pop = np.exp(-ages / max(args.pop_days, 1e-6))
-        ring_size = 18 + 155 * np.sqrt(trail["count"].to_numpy(dtype=float)) * (0.35 + pop) * fade
-        for target_crime, subset in trail.groupby("target_crime", observed=True):
-            idx = subset.index.to_numpy()
-            color = TARGET_CRIME_COLORS.get(str(target_crime), "#4d4d4d")
-            ax.scatter(
-                subset["cx"],
-                subset["cy"],
-                s=ring_size[idx],
-                facecolors="none",
-                edgecolors=color,
-                linewidths=0.95,
-                alpha=0.48,
-                zorder=4,
+    if getattr(args, "event_location_mode", "cell") == "event":
+        trail = _raw_event_trail_for_frame(events, display_time, args.fade_days).copy()
+        if not trail.empty:
+            ages = (display_time - trail["occurred_at"]).dt.total_seconds() / 86400.0
+            trail["fade"] = np.clip(1.0 - ages / max(args.fade_days, 1), 0.0, 1.0)
+            trail["pop"] = np.exp(-ages / max(args.pop_days, 1e-6))
+            for target_crime, subset in trail.groupby("target_crime", observed=True):
+                color = TARGET_CRIME_COLORS.get(str(target_crime), "#4d4d4d")
+                rgba = np.tile(to_rgba(color), (len(subset), 1))
+                rgba[:, 3] = 0.50 * subset["fade"].to_numpy(dtype=float)
+                size = 5.0 + 72.0 * (0.20 + subset["pop"].to_numpy(dtype=float)) * subset[
+                    "fade"
+                ].to_numpy(dtype=float)
+                ax.scatter(
+                    subset["x"],
+                    subset["y"],
+                    s=size,
+                    facecolors="none",
+                    edgecolors=rgba,
+                    linewidths=0.65,
+                    zorder=4,
+                )
+    else:
+        trail = _event_trail_for_frame(grid, events, display_time, args.fade_days)
+        if not trail.empty:
+            ages = (display_time - trail["latest"]).dt.total_seconds() / 86400.0
+            fade = np.clip(1.0 - ages / max(args.fade_days, 1), 0.0, 1.0)
+            pop = np.exp(-ages / max(args.pop_days, 1e-6))
+            ring_size = (
+                18
+                + 155
+                * np.sqrt(trail["count"].to_numpy(dtype=float))
+                * (0.35 + pop)
+                * fade
             )
+            for target_crime, subset in trail.groupby("target_crime", observed=True):
+                idx = subset.index.to_numpy()
+                color = TARGET_CRIME_COLORS.get(str(target_crime), "#4d4d4d")
+                ax.scatter(
+                    subset["cx"],
+                    subset["cy"],
+                    s=ring_size[idx],
+                    facecolors="none",
+                    edgecolors=color,
+                    linewidths=0.95,
+                    alpha=0.48,
+                    zorder=4,
+                )
 
     minx, miny, maxx, maxy = grid.total_bounds
     pad = max(maxx - minx, maxy - miny) * 0.025

@@ -59,7 +59,7 @@ datas/
 
 各実験は、dataset ID、model ID、学習または履歴期間、予測ホライズン、予測期間、top-kや重点区域数、乱数seed、出力先を明示する必要があります。
 
-`metrics/evaluate_current_results.py` は、現在のETAS、our_model vol1、our_model vol2の実験結果に対して、文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に挙げられた指標を可能な範囲で計算します。ただし、GIFや評価値を「モデルが社会的に有効である」証拠としては扱いません。介入効果、住民影響、feedback loopは別途検討が必要です。
+`metrics/evaluate_current_results.py` は、現在のETAS、our_model vol1、vol2、vol3の実験結果に対して、文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に挙げられた指標を可能な範囲で計算します。ただし、GIFや評価値を「モデルが社会的に有効である」証拠としては扱いません。介入効果、住民影響、feedback loopは別途検討が必要です。
 
 ## 1. LAPDデータセット
 
@@ -222,7 +222,36 @@ datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/lapd_leg
 
 境界付近では、元データのareaとセル中心に基づくareaがずれることがあります。区域別モデルでは、セルごとの予測と整合させるため、150mセル所属に基づく `area_id` を使います。元データの区域は `source_area_id` として残しています。
 
-### 1.6 退役したデータ
+### 1.6 STMGNN-ZINB用3km日次データ
+
+文献 `2408.04193v1` の実験条件に合わせ、150m対象犯罪データから次の派生データを作成しました。
+
+- dataset ID: `lapd_legacy_2010_2024_stmgnn_target_crimes_grid3000m_daily`
+- 元イベント: `BURGLARY`, `CAR_THEFT`, `THEFT_FROM_VEHICLE`
+- 空間単位: LAPD境界と交差する3km x 3km格子、205セル
+- 時間単位: 日次
+- モデル入力形式: `X[day, cell, crime_type]`
+- 使用期間: 2010-01-01から2024-11-30
+- 使用イベント数: 917,227
+- 日数: 5,448
+- 全セル・全犯罪種・全日のゼロ率: 81.01%
+- 平均カウント: 0.2738件 / cell / crime type / day
+- 最大カウント: 94件
+
+3km格子はLAPD 21区域を分割単位にはせず、都市全体で1つの8近傍グラフを作ります。各セルには自己ループを加え、入次数でrow-normalizeした隣接重みをDGCNへ渡します。区域境界は可視化のため保持しますが、区域ごとに別モデルを学習する方式ではありません。
+
+公開データの2024年12月は、日次対象犯罪数が12月14日の78件から15日58件、16日42件と連続的に落ち、最終日の12月30日は3件しかありません。これは発生件数の通常変動よりもreporting delayまたは公開データ末尾の右打ち切りと考えるのが妥当なため、本実験では最後の完全な月である2024年11月30日までを使います。元イベント自体は削除せず、派生データと実験引数にcutoffを記録しています。
+
+保存先:
+
+```text
+datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/
+  lapd_legacy_2010_2024_stmgnn_target_crimes_grid3000m_daily/
+```
+
+この派生データも `datas/` 配下なのでGit管理外です。実験スクリプトが必要に応じて再生成します。
+
+### 1.7 退役したデータ
 
 初期段階では以下も試しました。
 
@@ -246,8 +275,10 @@ datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/lapd_leg
 
 - `ref_models/models/etas/adaptive_etas.py`
 - `ref_models/models/etas/marked_adaptive_etas.py`
+- `ref_models/models/stmgnn_zinb/stmgnn_zinb.py`
 - `our_model/vol1/stnpp_gat.py`
 - `our_model/vol2/etas_enhanced_stnpp_gat.py`
+- `our_model/vol3/stnpp_gat_zinb.py`
 
 以前の週次Transformer v1スキャフォールドは現行構成から外しました。今後Transformer系を再開する場合は、STNPP-GATとの違いを明確にしたうえで、新しい `ref_models` または `our_model` のvolとして作り直します。
 
@@ -403,7 +434,76 @@ vol2では、GATは「どの犯罪種・区域markがどのmarkへ影響しや�
 
 これは論文そのもののSTNPP完全再現ではありません。むしろ、今後の独自モデル開発で「GATによるmark interaction」と「ETASの逐次的な自己励起校正」を同時に扱うためのvol2です。
 
-### 2.5 退役したTransformer v1
+### 2.5 STMGNN-ZINB
+
+追加文献 `2408.04193v1` は、犯罪カウントの疎性、ゼロ過剰、過分散を同時に扱う `Spatial Temporal Multivariate Zero-Inflated Negative Binomial Graph Neural Network (STMGNN-ZINB)` を提案しています。点過程ではなく、都市を格子グラフにした離散時間の多変量カウント予測モデルです。
+
+論文で明示された構成:
+
+- 入力は `X in R^(N x T x C)`。`N` は空間格子、`T` は履歴時点、`C` は犯罪種。
+- DGCN branchで隣接格子間の空間相関を抽出する。
+- MTCN branchで時間と犯罪種を結合し、multivariate-temporal correlationを抽出する。
+- 両branchが出すZINBパラメータ埋め込みをHadamard積で融合する。
+- ZINBの3パラメータは、extra-zero probability `pi`、negative-binomial probability `p`、dispersion `r`。
+- ゼロを含む全観測に対して、変分下限ではなく直接negative log-likelihoodを最小化する。
+- 3km x 3km格子、日次予測、時系列方向の7:1 train/test split、train末尾30日のvalidationを用いる。
+- 論文実験はNYCの4犯罪種とChicagoの4犯罪種を別々に使用する。
+
+本実装:
+
+- `ref_models/models/stmgnn_zinb/stmgnn_zinb.py`
+- DGCNは論文式 `D^-1 A H W + B H` に対応するneighbor transformとself-state transformを持つ。
+- MTCNは全履歴日・全犯罪種を結合したshared gated projectionを使い、`pi`, `p`, `r` の各headを持つ。
+- 空間branchと時間branchをHadamard積で融合して有効なZINBパラメータへ制約する。
+- 予測平均は `(1 - pi) * r * p / (1 - p)`、分散もzero-inflated mixtureとして計算する。
+- ZINB log probabilityは論文Equation (3)と同じ場合分けを実装し、SciPyのnegative-binomial PMFとの数値一致を確認した。
+
+論文にないため本実験で定めた設定:
+
+- input history: 28日
+- output horizon: 1日
+- hidden dimension: 24
+- DGCN layers: 1
+- MTCN intermediate width: 14日 x 3犯罪種
+- dropout: 0.10
+- optimizer: Adam
+- learning rate: 0.001
+- weight decay: 0.00001
+- batch size: 256
+- maximum epochs: 100
+- gradient clipping: 5.0
+- early-stopping patience: 12 epochs
+- random seed: 42
+- graph: 8-neighbor 3km grid with self-loops
+
+逐次予測は可能です。テスト期間の各日について、その直前28日間の実観測を入力し、次の1日を予測します。モデルパラメータを毎日再学習する方式ではなく、固定した学習済みモデルへrolling windowを順次入力するone-step-ahead評価です。
+
+### 2.6 our_model vol3: STNPP-GAT-ZINB
+
+STMGNN-ZINBからSTNPP-GATへ採用できる要素を検討した結果、vol3では「3km単位の分布付き犯罪総量予測」と「150m単位の点過程risk配分」を分担させる多尺度構成を採用しました。
+
+検討した案:
+
+- ZINBを150mセルへ直接適用する案は採用しませんでした。150m x 日次 x 犯罪種別ではほぼ全観測が0となり、約56,927ノードのDGCNも必要になるため、論文の3km設定から大きく外れ、計算量とzero inflationの双方が過度になります。
+- 150m riskへDGCN平滑化を直接かける案も採用しませんでした。イベント近傍の鋭いhotspotを表すSTNPP-GAT/ETASの役割と、隣接格子を拡散させるDGCNの役割が衝突するためです。
+- GATによるmark interactionをSTMGNNへ置き換える案も採用しませんでした。犯罪種 x LAPD区域の励起関係と、連続時間の減衰を失うためです。
+- 採用したのは、STMGNN-ZINBを3km・日次・犯罪種別の総量予測器、vol2を150mセルへの配分器として組み合わせる方式です。
+
+実装:
+
+- `our_model/vol3/stnpp_gat_zinb.py`
+- coarse branch: 205個の3kmセル、3犯罪種、過去28日を入力するDGCN + MTCN + ZINB。
+- fine branch: vol2と同じ63 mark GAT、区域別adaptive ETAS、150mセル上の犯罪種別point-process risk。
+- ZINB branchは `mean`, `variance`, `pi`, `p`, `r` を出力する。
+- fine branchの各3kmセル内riskを集計し、Poisson近似による分散を `variance_point = mean_point` とする。
+- ZINB側の重みは、逆分散融合から `w_zinb = variance_point / (variance_point + variance_zinb)` とする。
+- 融合平均は `mean_fused = (1 - w_zinb) * mean_point + w_zinb * mean_zinb`。
+- 各3kmセル・犯罪種の `mean_fused` を、その中の150mセルへfine branchのrisk比率で再配分する。
+- これにより、ZINB分散が大きい予測ではvol2側を多く残し、分布予測が相対的に確かな場所でZINB補正を強くします。
+
+150m配分後の合計は3kmの融合平均と一致します。ただし、ZINBの予測区間を150mセルへ分解したわけではありません。`pi`, `p`, `r`, prediction intervalの解釈は3km x 犯罪種 x 日の解像度に限定します。
+
+### 2.7 退役したTransformer v1
 
 以前は、週次セルカウント列を入力する小型Transformer v1も試しました。
 
@@ -422,7 +522,7 @@ vol2では、GATは「どの犯罪種・区域markがどのmarkへ影響しや�
 
 ### 3.1 実験共通設定
 
-現行実験は、同じ150m対象犯罪データに対して、参照モデルのETAS、our_model vol1のSTNPP-GAT、our_model vol2のETAS-enhanced STNPP-GATを比較できる形で実行しました。
+ETAS、our_model vol1、our_model vol2、our_model vol3は同じ150m対象犯罪データ上に最終riskを出し、共通評価できる形にしています。vol3内部のZINB branchとreference STMGNN-ZINBは3km日次格子を使います。reference STMGNN-ZINB単体は150m予測面へ変換せず、共通比較には含めません。
 
 共通データ:
 
@@ -434,6 +534,8 @@ vol2では、GATは「どの犯罪種・区域markがどのmarkへ影響しや�
 - forecast horizon: 24時間
 - forecast display period: 2020-01-01 から 2024-12-26表示まで
 - frame interval: 14日
+
+vol3だけは、公開データ末尾の右打ち切りを避けるため2024-11-27予測表示までです。モデル間で数値比較するときは、本文3.6のように共通期間へ切り揃えます。
 - frames: 131
 
 GIF表現:
@@ -664,7 +766,180 @@ our_experiment/vol2/results/
 - 予測期待件数の範囲: 141.70 から 201.57
 - 表示フレーム上の観測事件合計: 23,166
 
-### 3.5 退役した実験
+### 3.5 STMGNN-ZINB実験
+
+実行スクリプト:
+
+```text
+ref_models/experiments/stmgnn_zinb/run_lapd_stmgnn_zinb.py
+```
+
+出力先:
+
+```text
+ref_models/experiments/stmgnn_zinb/results/
+```
+
+論文準拠の設定:
+
+- model ID: `U1_stmgnn_zinb_lapd`
+- cell size: 3km x 3km
+- nodes: 205
+- crime channels: 3
+- temporal resolution: daily
+- chronological split: 7:1
+- validation: train partition末尾30日
+- distribution: ZINB
+- loss: direct ZINB negative log-likelihood
+- spatial branch: DGCN
+- multivariate-temporal branch: MTCN
+- branch fusion: Hadamard product
+
+期間とsample数:
+
+- full period: 2010-01-01から2024-11-30
+- train target period: 2010-01-29から2022-12-20
+- validation: 2022-12-21から2023-01-19、30 samples
+- test: 2023-01-20から2024-11-30、681 samples
+- train samples: 4,709
+- test prediction points: 681日 x 205セル x 3犯罪種 = 418,815
+
+実際の学習結果:
+
+- device: CPU
+- PyTorch: 2.14.0+cpu
+- trainable parameters: 11,355
+- completed epochs: 93 / 100
+- best epoch: 81
+- best validation NLL: 0.550761 / observation
+- stop reason: 12 epochs validation改善なしによるearly stopping
+
+テスト結果:
+
+- MAE: 0.307679 count / cell / crime / day
+- PICP: 0.965956（10th-90th percentile interval）
+- MPIW: 0.777589 count
+- occurrence F1: 0.550405
+- true-zero rate: 0.910229
+- actual zero rate: 0.817609
+- predicted zero rate: 0.829481
+- test ZINB NLL: 0.486589 / observation
+- empirical-vs-predictive count histogram KL: 0.00011703
+- observed mean: 0.279617
+- predicted mean: 0.280974
+
+ここでoccurrence F1は、予測平均を最寄り整数へ丸めた後に `count > 0` を犯罪発生としたbinary F1です。true-zero rateは実際に0だった観測のうち0と予測した割合です。KLは各観測のZINB PMFを平均したpredictive count histogramと、実測count histogramの離散KLであり、論文が実装詳細を示していないため完全に同一定義とは保証できません。
+
+予測区間は論文表現どおり10%-90% quantileを使います。この区間のnominal coverageは数学的には80%ですが、論文本文には「90%に近いことを目指す」とも書かれており記述が矛盾しています。結果表にはquantile境界とnominal 0.80の両方を記録しました。今回のPICP 0.9660は、離散カウントの区間が保守的であることを示します。
+
+保持している出力:
+
+- `animations/U1_stmgnn_zinb_lapd_24h_forecast_heatmap.gif`
+- `model/model_state.pt`
+- `tables/animation_config.yml`
+- `tables/training_summary.yml`
+- `tables/zinb_daily_predictions.parquet`
+- `tables/forecast_frames.csv`
+- `tables/forecast_cell_risk.parquet`
+- `tables/forecast_top_cells.csv`
+- `tables/observed_events.parquet`
+- `metrics/summary_metrics.csv`
+- `metrics/daily_metrics.csv`
+- `metrics/training_history.csv`
+- `metrics/plots/*.png`
+
+GIFはテスト期間の日次逐次予測から14日ごとに49 frameを抽出しています。ヒートマップは3犯罪種の24時間予測平均の合計、円は実際の事件です。円はセル中心ではなく公開データの投影座標 `x`, `y` に置き、28日間で薄くなります。モデルはLAPD全域を1つのグラフとして学習し、表示も全21区域を1枚に統合しています。
+
+### 3.6 our_model vol3実験
+
+実行スクリプト:
+
+```text
+our_experiment/vol3/run_lapd_stnpp_gat_zinb.py
+```
+
+予測期間と分割:
+
+- coarse grid: 3km、205セル。
+- fine grid: 150m、56,927セル。
+- crime channels: `BURGLARY`, `CAR_THEFT`, `THEFT_FROM_VEHICLE`。
+- ZINB train targets: 2010-01-29から2019-12-01、3,594 samples。
+- validation: 2019-12-02から2019-12-31、30 samples。
+- test: 2020-01-01から2024-11-30、1,796 daily samples。
+- GIF: test予測を14日ごとに抽出した129 frames、最終予測日は2024-11-27。
+- 2024年12月は公開データ末尾の右打ち切りがあるため含めない。
+
+学習設定:
+
+- ZINB input history: 28日。
+- ZINB hidden dimension: 24。
+- DGCN layers: 1。
+- MTCN intermediate width: 14日 x 3犯罪種。
+- optimizer: Adam、learning rate `0.001`、weight decay `0.00001`。
+- batch size: 256、maximum epochs: 100、early-stopping patience: 12。
+- GAT: hidden dimension 64、8 heads、SGD learning rate 1.0、1,500 epochs。
+- ETAS: 365日history、28日refit、30日trigger lookback、21区域別 `theta/omega`。
+
+学習結果:
+
+- ZINB trainable parameters: 11,355。
+- ZINB completed epochs: 100 / 100。
+- best epoch: 100。
+- best validation NLL: 0.517349 / observation。
+- GAT transition KL: 3.119379 から 2.577063。
+- GAT transition学習イベント: 593,806。
+- weighted transition pairs: 334,510。
+
+3km ZINB branchの全テスト日評価:
+
+- MAE: 0.321306 count / cell / crime / day。
+- PICP: 0.962517（10th-90th percentile interval）。
+- MPIW: 0.790904 count。
+- occurrence F1: 0.544209。
+- true-zero rate: 0.904428。
+- ZINB NLL: 0.514162 / observation。
+- empirical-vs-predictive histogram KL: 0.0008103。
+- observed mean: 0.292811、predicted mean: 0.279458。
+
+不確実性融合:
+
+- 個別3kmセル・犯罪種のZINB weight範囲: 0.002624から0.984178。
+- 全frame・cell・crimeの平均ZINB weight: 0.431394。
+- frame平均weightの範囲: 0.385437から0.535385。
+- 150m配分時のfallback group: 0。
+- 3km融合平均と150m配分後合計の最大誤差: `2.93e-14`。
+
+vol2と共通する2020-01-01から2024-11-27の129 frameで比較すると、次のようになりました。
+
+| 指標 | vol2 | vol3 |
+|---|---:|---:|
+| cell MAE | 0.006239 | 0.006042 |
+| cell RMSE | 0.057009 | 0.056994 |
+| Brier score | 0.003001 | 0.003000 |
+| log loss | 0.018724 | 0.018702 |
+| probability O/E | 0.954794 | 1.016837 |
+| count O/E | 0.970003 | 1.034203 |
+| PR-AUC | 0.031387 | 0.031588 |
+| Spearman | 0.078521 | 0.065191 |
+| Hit Rate @ 5% | 0.399665 | 0.399278 |
+| PAI @ 5% | 7.991471 | 7.983732 |
+
+MAE、RMSE、Brier score、log loss、PR-AUC、probability O/Eは小幅に改善し、Hit RateとPAIはほぼ維持しました。一方でSpearmanは低下し、count O/Eも1からの絶対差ではわずかに悪化しました。したがって、vol3は全面的な優越ではなく、「総量と確率校正を改善しつつhotspot性能を概ね維持した最初の不確実性融合版」と位置付けます。
+
+保持している主な出力:
+
+- `our_experiment/vol3/results/animations/O3_stnpp_gat_zinb_multiscale_24h_forecast_heatmap.gif`
+- `results/model/model_state.pt`: ZINBとGATのstate、標準化統計、split。
+- `results/tables/coarse_zinb_daily_predictions.parquet`: 全テスト日のZINB予測表。
+- `results/tables/coarse_zinb_frame_predictions.parquet`: point-process mean、ZINB mean/variance、融合weight、融合mean。
+- `results/tables/area_etas_parameters.csv`
+- `results/tables/learned_mark_transition.csv`
+- `results/metrics/zinb_*`: 3km分布予測の評価。
+- `results/metrics/summary_metrics.csv`など: 融合後150m予測の共通評価。
+
+`--reuse-model-state` を指定すると、保存済みZINB/GAT重みを使い、ETAS逐次予測、融合、GIF、結果表だけを再生成できます。
+
+### 3.7 退役した実験
 
 以下は退役または参考用です。
 
@@ -676,9 +951,11 @@ our_experiment/vol2/results/
 
 今回のファイル整理では、古い結果を保持するよりも、参照モデル再現と本プロジェクト独自モデルの改良履歴を分けることを優先しました。
 
-### 3.6 評価指標実験
+### 3.8 評価指標実験
 
-追加文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に基づき、現在の3実験に対して評価指標をまとめて計算しました。
+追加文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に基づき、共通150m格子を使う4実験に対して評価指標をまとめて計算しました。
+
+STMGNN-ZINBは3km・犯罪種別・日次ZINB分布という異なる出力を持つため、この共通evaluatorへ無理に変換せず、論文固有のMAE、PICP、MPIW、F1、true-zero rate、KL、NLLを `ref_models/experiments/stmgnn_zinb/results/metrics/` に直接保存します。
 
 実行スクリプト:
 
@@ -691,6 +968,7 @@ metrics/evaluate_current_results.py
 - `Reference ETAS`
 - `Our vol1 STNPP-GAT`
 - `Our vol2 ETAS-enhanced STNPP-GAT`
+- `Our vol3 STNPP-GAT-ZINB`
 
 主な出力:
 
@@ -699,6 +977,7 @@ metrics/evaluate_current_results.py
 - `ref_models/experiments/etas/results/metrics/`
 - `our_experiment/vol1/results/metrics/`
 - `our_experiment/vol2/results/metrics/`
+- `our_experiment/vol3/results/metrics/`
 
 各ディレクトリに含める主な出力:
 
@@ -751,6 +1030,8 @@ LAPD legacy dataは公開履歴データであり、リアルタイム通報デ�
 
 境界外点、無効座標、重複行は除外しています。これはモデル入力を安定させるために必要ですが、除外された事件の地理的・時間的偏りはまだ評価していません。
 
+2024年12月後半には公開データ末尾の明確な右打ち切りが見られます。STMGNN-ZINB実験では2024年11月30日で切りましたが、既存のETAS/STNPP-GAT GIFは12月の表示を含みます。既存3モデルを再評価するときも同じcutoffへ揃える必要があります。
+
 ### 4.2 ETAS再現の限界
 
 Mohler論文では、ETASパラメータを1日1回午前4時に再推定し、現場では限られた数の150m boxを提示する運用でした。現在のGIF実験では、可視化サイズと計算量を抑えるため、24時間予測を14日間隔で表示し、再推定は28日間隔にしています。
@@ -773,7 +1054,29 @@ markは `crime type x LAPD area` にしています。論文のmark設計と同�
 
 vol2はETASの逐次的な自己励起校正を取り入れていますが、STNPP本体の完全なlikelihood推定やstreet-network distance問題を解決したわけではありません。現時点では、ETAS由来の適応性をour_modelへ取り込むための最初の開発版です。
 
-### 4.4 実験・評価の限界
+### 4.4 STMGNN-ZINB再現の限界
+
+文献 `2408.04193v1` は5ページで、著者実装も公開されていません。DGCN、MTCN、Hadamard fusion、ZINB NLL、3km格子、日次解像度、7:1 split、30日validationは本文に従いましたが、履歴長、将来step数、層数、hidden width、dropout、optimizer、learning rate、batch size、epoch数、隣接グラフの作り方は記載がありません。これらは再現可能な実験設定として本リポジトリ側で定めたもので、著者実装の完全再現ではありません。
+
+論文はNYCとChicagoの各4犯罪種を使いますが、今回の実験は既存のLAPD対象3犯罪を使います。データ期間、都市形状、zero rate、crime taxonomyが異なるため、論文Table 2の数値と直接比較できません。HA、STGCN、STMGNN-NB、Gaussian、Truncated Normalのbaselineも今回は再実行していません。
+
+論文のPICP説明には、10%-90% intervalとしながらcoverageを90%に近づけるという不整合があります。本実験はquantile境界を優先し、nominal coverageを80%として併記しました。またKL divergence、F1、true-zero rateの厳密な集計方法も本文にありません。本実装の定義は結果とともに明示していますが、論文値との同一定義は保証できません。
+
+3km格子は既存150mモデルより粗く、同じhotspot面積率で直接比較できません。3km予測を150mへ見かけ上補間すると精度を誤認させるため、現在の共通150m metric evaluatorには加えていません。将来比較する場合は、全モデルを同じ3km・日次・犯罪種別カウントへ再学習する必要があります。
+
+テスト時は直前28日の実観測を毎日入力するrolling one-step-ahead予測です。未来予測を自己回帰的に次の入力へ戻すmulti-step forecastや、online fine-tuningはまだ試していません。extra-zero parameter `pi` の時空間的解釈、区間calibrationの再調整、異なる履歴長に対する感度も未確認です。
+
+### 4.5 our_model vol3の限界
+
+vol3の逆分散融合では、fine branchの期待件数をPoissonとみなし、分散が平均に等しいと仮定しています。しかし、STNPP-GAT/ETAS側のparameter uncertaintyやmodel uncertaintyを直接推定したものではありません。ZINB branchとの独立性も仮定しているため、`w_zinb` は厳密なBayesian model averagingではなく、再現可能なuncertainty-aware heuristicです。
+
+ZINBの不確実性は3km・犯罪種別・日次にのみ定義されています。150mセルへは期待件数だけを配分しており、fine-cell prediction interval、fine-cell `pi`、fine-cell dispersionは出していません。これらを出すには、coarse countをfine cellsへ確率的に配るhierarchical count modelが必要です。
+
+DGCN/MTCN branchとGAT/ETAS branchは別々に学習しています。end-to-endでjoint likelihoodを最適化していないため、ZINB補正がSpearmanを低下させる場合があります。今回も同一期間比較でSpearmanが0.078521から0.065191へ低下しました。
+
+評価期間は右打ち切りを避けて2024年11月末までとしたため、2024年12月まで含む既存vol1/vol2の公開summaryとは期間が異なります。本文のvol2/vol3比較は両方を2024-11-27までに切った129 frameで計算しています。
+
+### 4.6 実験・評価の限界
 
 現在はGIFとオフライン評価指標を併用しています。GIFはモデル挙動を観察するには有用ですが、予測性能や社会的妥当性を単独で判断するものではありません。評価指標も、観測犯罪データへの当てはまりを測るものであり、犯罪抑止効果や住民影響を直接測るものではありません。
 
@@ -788,7 +1091,7 @@ vol2はETASの逐次的な自己励起校正を取り入れていますが、STN
 
 また、Predictive Policingの有効性は、犯罪予測の当たり外れだけでは決まりません。警察活動の配置、住民への影響、既存の通報・取締りバイアス、地域負担の偏り、feedback loopを含めて検討する必要があります。
 
-### 4.5 計算・公開上の限界
+### 4.7 計算・公開上の限界
 
 `datas/` はGit管理外であり、GitHubには公開していません。したがって、第三者が完全再現するには、LA City Open Dataから同じデータを再取得し、ローカル準備スクリプトを実行する必要があります。
 
@@ -804,7 +1107,12 @@ CPU実行を前提にしているため、論文通りの毎日再推定や完�
 - ETASに隣接セルまたは距離減衰の空間核を入れる。
 - STNPP-GATに道路ネットワーク距離を導入する。
 - STNPP-GATを経験的遷移行列近似ではなく、連続時間event-sequence NLLで学習する。
-- vol2を検証し、空間核、report delay、network distanceのいずれかを取り込んだvol3を作る。
+- STMGNN-ZINBの公開実装または追加仕様を確認できた場合、未記載ハイパーパラメータとgraph constructionを更新する。
+- STMGNN-ZINBについて、HA、STGCN、NB、Gaussian、Truncated Normal baselineを同じLAPD splitで再現する。
+- 3km日次共通benchmarkを作り、ETAS/STNPP-GAT系とSTMGNN-ZINBを同じ空間・時間単位で比較する。
+- vol3をend-to-endのjoint likelihoodで学習し、GAT/ETAS側にもepistemic uncertaintyまたはcount varianceを導入する。
+- coarse ZINB分布を150mへ確率的に分解するhierarchical allocation modelを検討する。
+- vol3を検証し、空間核、report delay、network distanceのいずれかを取り込んだvol4を作る。
 - report delayを考慮した実運用風のデータ利用時点を再現する。
 - 評価メトリックにbootstrap 95%信頼区間を追加する。
 - AIC/BIC、time-rescaling KS、next-event評価に必要なモデル出力を保存する。

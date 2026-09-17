@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import math
 import os
 from dataclasses import dataclass
@@ -61,6 +62,11 @@ MODELS = (
         name="our_vol2",
         label="Our vol2 ETAS-enhanced STNPP-GAT",
         result_dir=ROOT / "our_experiment/vol2/results",
+    ),
+    ModelResult(
+        name="our_vol3",
+        label="Our vol3 STNPP-GAT-ZINB",
+        result_dir=ROOT / "our_experiment/vol3/results",
     ),
 )
 
@@ -181,15 +187,15 @@ def adjacency_arrays(grid: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(src, dtype=np.int32), np.asarray(dst, dtype=np.int32)
 
 
-def load_frames() -> pd.DataFrame:
-    frames = pd.read_csv(MODELS[0].result_dir / "tables/forecast_frames.csv")
+def load_frames(model: ModelResult) -> pd.DataFrame:
+    frames = pd.read_csv(model.result_dir / "tables/forecast_frames.csv")
     frames["forecast_date"] = pd.to_datetime(frames["forecast_date"])
     frames["display_time"] = pd.to_datetime(frames["display_time"])
     return frames
 
 
 def build_actual_matrix(frames: pd.DataFrame, grid: pd.DataFrame) -> np.ndarray:
-    events = pd.read_parquet(MODELS[0].result_dir / "tables/observed_events.parquet")
+    events = pd.read_parquet(DATASET_DIR / "events.parquet")
     events["occurred_at"] = pd.to_datetime(events["occurred_at"])
     cell_index = pd.Series(np.arange(len(grid), dtype=np.int32), index=grid["cell_id"])
     actual = np.zeros((len(frames), len(grid)), dtype=np.int16)
@@ -1158,14 +1164,24 @@ def create_model_plots(
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Evaluate saved predictive-policing forecasts.")
+    parser.add_argument(
+        "--model",
+        action="append",
+        choices=[model.name for model in MODELS],
+        help="Evaluate only this model; repeat to select multiple models.",
+    )
+    args = parser.parse_args()
+    selected_models = [model for model in MODELS if not args.model or model.name in args.model]
+
     grid = load_grid()
-    frames = load_frames()
-    actual = build_actual_matrix(frames, grid)
     naive_pred = training_naive_prediction(grid)
     adjacency_src, adjacency_dst = adjacency_arrays(grid)
 
-    for model in MODELS:
+    for model in selected_models:
         print(f"Evaluating {model.label}")
+        frames = load_frames(model)
+        actual = build_actual_matrix(frames, grid)
         result = evaluate_model(
             model,
             grid,

@@ -16,9 +16,11 @@ our_experiment/*/results/*
 our_experiment/*/results/animations/*
 !our_experiment/vol1/results/animations/T2_stnpp_gat_marked_point_process_24h_forecast_heatmap.gif
 !our_experiment/vol2/results/animations/O2_etas_enhanced_stnpp_gat_24h_forecast_heatmap.gif
+!our_experiment/vol3/results/animations/O3_stnpp_gat_zinb_multiscale_24h_forecast_heatmap.gif
 ref_models/experiments/*/results/*
 !ref_models/experiments/*/results/metrics/
 !ref_models/experiments/*/results/metrics/**
 !ref_models/experiments/*/results/animations/
 ref_models/experiments/*/results/animations/*
 !ref_models/experiments/etas/results/animations/M7_mohler_style_lapd_etas_24h_forecast_heatmap.gif
+!ref_models/experiments/stmgnn_zinb/results/animations/U1_stmgnn_zinb_lapd_24h_forecast_heatmap.gif
