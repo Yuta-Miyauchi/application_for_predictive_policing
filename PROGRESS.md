@@ -222,9 +222,9 @@ datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/lapd_leg
 
 境界付近では、元データのareaとセル中心に基づくareaがずれることがあります。区域別モデルでは、セルごとの予測と整合させるため、150mセル所属に基づく `area_id` を使います。元データの区域は `source_area_id` として残しています。
 
-### 1.6 STMGNN-ZINB用3km日次データ
+### 1.6 STMGNN-ZINB / HCL用3km日次データ
 
-文献 `2408.04193v1` の実験条件に合わせ、150m対象犯罪データから次の派生データを作成しました。
+文献 `2408.04193v1` の実験条件に合わせ、150m対象犯罪データから次の派生データを作成しました。HCL文献も3km・日次・多犯罪種tensorを使うため、同じ派生データを再利用します。dataset IDには初出時の `stmgnn` が残っていますが、データ自体はモデル非依存です。
 
 - dataset ID: `lapd_legacy_2010_2024_stmgnn_target_crimes_grid3000m_daily`
 - 元イベント: `BURGLARY`, `CAR_THEFT`, `THEFT_FROM_VEHICLE`
@@ -276,9 +276,11 @@ datas/lapd_full/lapd_legacy_2010_2024_all_crimes_grid300m_h168h/derived/
 - `ref_models/models/etas/adaptive_etas.py`
 - `ref_models/models/etas/marked_adaptive_etas.py`
 - `ref_models/models/stmgnn_zinb/stmgnn_zinb.py`
+- `ref_models/models/hcl/hcl.py`
 - `our_model/vol1/stnpp_gat.py`
 - `our_model/vol2/etas_enhanced_stnpp_gat.py`
 - `our_model/vol3/stnpp_gat_zinb.py`
+- `our_model/vol4/stnpp_gat_hcl_zinb.py`
 
 以前の週次Transformer v1スキャフォールドは現行構成から外しました。今後Transformer系を再開する場合は、STNPP-GATとの違いを明確にしたうえで、新しい `ref_models` または `our_model` のvolとして作り直します。
 
@@ -478,7 +480,57 @@ vol2では、GATは「どの犯罪種・区域markがどのmarkへ影響しや�
 
 逐次予測は可能です。テスト期間の各日について、その直前28日間の実観測を入力し、次の1日を予測します。モデルパラメータを毎日再学習する方式ではなく、固定した学習済みモデルへrolling windowを順次入力するone-step-ahead評価です。
 
-### 2.6 our_model vol3: STNPP-GAT-ZINB
+### 2.6 HCL: Hawkes-enhanced Spatial-Temporal Hypergraph Contrastive Learning
+
+追加文献 `01605-AAAI24.LiangK.pdf` は、犯罪予測用ハイパーグラフbackboneへ3種類の犯罪相関を追加するHCLを提案しています。ここでいうHawkesは、事件レベルの条件付き強度を最尤推定するETASとは異なり、ハイパーグラフが生成した時点別表現を直近履歴で加算強調するrepresentation-levelの処理です。
+
+論文が定義する相関:
+
+- type spatial correlation: 同じセル・同じ日に発生した犯罪種集合と、発生しなかった犯罪種集合を対応させる。
+- neighbor spatial correlation: ある犯罪が発生したセルと、同じ犯罪が発生していない上下左右1-hopセルを対応させる。
+- Hawkes temporal correlation: 現時点に近い過去時点ほど大きい指数重みで、現在の表現へ加える。
+
+Hawkes強調は、primitive表現 `H_p` に対して次の形です。
+
+```text
+H[t_j] = H_p[t_j] + delta * sum(i=1..s) w[j-i,j] * H_p[t_j-i]
+w[j-i,j] = exp(-(t_j - t_j-i + 1) / (t_j - t_j-s + 1))
+```
+
+type相関では発生犯罪種と非発生犯罪種の表現をそれぞれ平均poolし、neighbor相関ではanchorセルと非発生近隣セルの表現を平均poolします。どちらもL2正規化後の二乗距離で近づけ、neighbor lossは犯罪種係数 `beta_c` で重み付けします。`beta_c` は、学習期間中にanchorで犯罪が起きたとき、同じ犯罪が1-hop近隣にも起きた割合です。全損失は次です。
+
+```text
+L = L_task + lambda_type * L_type + lambda_neighbor * L_neighbor
+```
+
+論文実験で明示された条件:
+
+- 空間単位: 3km x 3km。
+- 時間単位: 1日。
+- train/test: 時系列7:1。
+- validation: train末尾1か月。
+- 数量予測backbone: ST-HSL、task lossはregression loss。
+- 発生有無予測backbone: ST-SHN、task lossはclassification loss。
+- NYC最良値: `lambda_type=0.15`, `lambda_neighbor=0.15`, `delta=0.01`, `s=3`。
+- Chicago最良値: `lambda_type=0.20`, `lambda_neighbor=0.20`, `delta=0.01`, `s=5`。
+- 数量予測指標: MAE、正の観測に対するMAPE。
+- 発生有無指標: Micro-F1、Macro-F1。
+- 論文報告値は5 runsの平均。
+
+本実装:
+
+- `ref_models/models/hcl/hcl.py`
+- 数量予測側のみを実装し、ST-HSL公式実装と同じMSE task lossを使う。
+- 表現tensorは `[batch, cell, day, crime, hidden]`。
+- 各セル内の犯罪種を結ぶtype hyperedgeと、犯罪種ごとにセルと上下左右セルを結ぶneighborhood hyperedgeを持つcompact structural hypergraph encoderを使う。
+- HCL論文Equation (3), (4)のHawkes強調を表現上で適用する。
+- Equation (5)-(11)に対応するtype/neighbor pair poolingとnormalized squared-distance lossを適用する。
+- 30日分の強調表現をtemporal attentionでpoolし、直近日表現と結合した後、Softplus headで非負の次日countを出す。この予測headは論文で未指定のため本実験側の補完である。
+- 全21 LAPD区域を205個の3kmセルからなる単一ハイパーグラフとして学習し、表示も全域を1枚にする。
+
+HCL著者の実装は確認できず、論文はST-HSL内部の設定を再掲していません。そこでST-HSL公式実装からhistory 30日、hidden 16、batch 16、25 epochs、Adam `lr=0.001`, `weight_decay=0.0001`、MSEを参照しました。ただし、ST-HSLそのもののlearnable 128 hyperedges、local/global dual encoder、Infomax/InfoNCE auxiliary lossを移植した完全実装ではありません。本実装はHCL固有の3相関を検証するcompact backbone版です。
+
+### 2.7 our_model vol3: STNPP-GAT-ZINB
 
 STMGNN-ZINBからSTNPP-GATへ採用できる要素を検討した結果、vol3では「3km単位の分布付き犯罪総量予測」と「150m単位の点過程risk配分」を分担させる多尺度構成を採用しました。
 
@@ -503,7 +555,41 @@ STMGNN-ZINBからSTNPP-GATへ採用できる要素を検討した結果、vol3�
 
 150m配分後の合計は3kmの融合平均と一致します。ただし、ZINBの予測区間を150mセルへ分解したわけではありません。`pi`, `p`, `r`, prediction intervalの解釈は3km x 犯罪種 x 日の解像度に限定します。
 
-### 2.7 退役したTransformer v1
+### 2.8 our_model vol4: STNPP-GAT-HCL-ZINB
+
+HCLからvol3へ採用できる要素を、時間モデル、空間解像度、不確実性の3点から検討しました。結論として、HCLをfine branchへ足すのではなく、vol3の3km ZINB branchをHCL-regularized ZINBへ置き換える方式を採用します。
+
+検討した案:
+
+- HCLのHawkes強調を150m fine branchへ追加する案は採用しません。fine branchには既に区域別adaptive ETASがあり、実事件による連続時間の自己励起を扱っています。HCLのrepresentation-level加算を重ねると、同じ直近事件を異なる定義で二重に強調し、条件付き強度としての解釈も弱くなります。
+- fine branchのGAT/ETASをHCLへ置き換える案も採用しません。HCLは3km・日次tensor用であり、150mの鋭いhotspot、イベント時刻、365日背景率、区域別ETAS再推定を失います。
+- HCL point forecastをvol3の第3の平均として後段融合する案は採用しません。HCL point headには校正されたpredictive varianceがなく、vol3の逆分散融合へ対等に入れる根拠がありません。
+- type/neighbor相関をfine riskへ事後平滑化としてかける案も採用しません。実事件近傍のrankingを後処理で変え、coarse総量モデルとfine配分モデルの責務が曖昧になるためです。
+- 採用したのは、3km coarse branch内部でHCL表現を作り、その表現からZINB分布を直接出す方式です。これならHCLの3相関を犯罪種別総量と不確実性推定へ反映しつつ、vol3の多尺度設計を保てます。
+
+実装:
+
+- `our_model/vol4/stnpp_gat_hcl_zinb.py`
+- primitive表現: 標準化した3km日次count、cell embedding、crime embedding、履歴位置embedding。
+- hyperedges: 同一セル内の犯罪種hyperedgeと、同一犯罪種の中心セル＋上下左右セルhyperedge。
+- Hawkes enhancement: HCL Equation (3)-(4)に従い、直近 `s=3` 日のprimitive表現を `delta=0.01` で加算。
+- temporal head: 強調後28日表現のattention poolと直近日表現を結合。
+- distribution head: `pi`, `p`, `r` を出し、ZINBのmeanとvarianceを計算。
+- task objective: direct ZINB negative log-likelihood。
+- auxiliary objective: `lambda_type * L_type + lambda_neighbor * L_neighbor`。
+- 全損失: `L = ZINB_NLL + 0.15 * L_type + 0.15 * L_neighbor`。
+
+vol3から維持する部分:
+
+- 150m fine branchの63 mark GAT。
+- LAPD 21区域別adaptive ETASと28日間隔の再推定。
+- coarse point-process meanとZINB mean/varianceの逆分散融合。
+- 融合した3km犯罪種別meanを、fine branchのrisk比率で150mセルへ配分。
+- 24時間予測、14日表示間隔、全21区域を統合したGIF。
+
+この構成では、HCLは「coarseな犯罪種・近隣・短期時間相関」、GAT/ETASは「fineなmark interaction・イベント自己励起」、ZINBは「ゼロ過剰・過分散と予測不確実性」を担当します。HCLとETASを同じHawkesモデルとみなさず、異なる解像度と意味を持つ部品として境界を固定しています。
+
+### 2.9 退役したTransformer v1
 
 以前は、週次セルカウント列を入力する小型Transformer v1も試しました。
 
@@ -522,7 +608,7 @@ STMGNN-ZINBからSTNPP-GATへ採用できる要素を検討した結果、vol3�
 
 ### 3.1 実験共通設定
 
-ETAS、our_model vol1、our_model vol2、our_model vol3は同じ150m対象犯罪データ上に最終riskを出し、共通評価できる形にしています。vol3内部のZINB branchとreference STMGNN-ZINBは3km日次格子を使います。reference STMGNN-ZINB単体は150m予測面へ変換せず、共通比較には含めません。
+ETAS、our_model vol1、our_model vol2、our_model vol3、our_model vol4は同じ150m対象犯罪データ上に最終riskを出し、共通評価できる形にしています。vol3/vol4内部のZINB branch、reference STMGNN-ZINB、reference HCLは3km日次格子を使います。3kmのreferenceモデルは150m予測面へ変換せず、共通比較には含めません。
 
 共通データ:
 
@@ -850,7 +936,116 @@ ref_models/experiments/stmgnn_zinb/results/
 
 GIFはテスト期間の日次逐次予測から14日ごとに49 frameを抽出しています。ヒートマップは3犯罪種の24時間予測平均の合計、円は実際の事件です。円はセル中心ではなく公開データの投影座標 `x`, `y` に置き、28日間で薄くなります。モデルはLAPD全域を1つのグラフとして学習し、表示も全21区域を1枚に統合しています。
 
-### 3.6 our_model vol3実験
+### 3.6 HCL数量予測実験
+
+実行スクリプト:
+
+```text
+ref_models/experiments/hcl/run_lapd_hcl.py
+```
+
+出力先:
+
+```text
+ref_models/experiments/hcl/results/
+```
+
+データと時系列分割:
+
+- model ID: `H1_hcl_lapd_quantity`
+- dataset ID: `lapd_legacy_2010_2024_stmgnn_target_crimes_grid3000m_daily`
+- cell size: 3km x 3km、205 cells。
+- crimes: `BURGLARY`, `CAR_THEFT`, `THEFT_FROM_VEHICLE`。
+- full period: 2010-01-01から2024-11-30。
+- input history: 30日、forecast horizon: 1日。
+- train/test: 時系列7:1、train末尾30日をvalidation。
+- train target period: 2010-01-31から2022-12-20。
+- validation: 2022-12-21から2023-01-19、30 daily samples。
+- test: 2023-01-20から2024-11-30、681 daily samples。
+- 利用可能なtrain target 4,707日のうち、7日間隔の673 targetを学習に使用。
+- validationとtestは間引かず、毎日のrolling one-day-ahead予測を行う。
+
+論文から採用したHCL設定:
+
+- `lambda_type=0.15`
+- `lambda_neighbor=0.15`
+- `hawkes_delta=0.01`
+- `hawkes_scope=3 days`
+- neighbor: 上下左右のcardinal 1-hop。
+- task loss: MSE regression。
+- contrastive loss: L2正規化したpair表現間のsquared distance。
+
+ST-HSL公式実装を参考にした学習設定:
+
+- hidden dimension: 16。
+- history: 30日。
+- batch size: 16。
+- maximum epochs: 25。
+- optimizer: Adam。
+- learning rate: 0.001。
+- weight decay: 0.0001。
+- dropout: 0.20。
+
+本実験で定めた設定:
+
+- hypergraph layers: 1。
+- structural hyperedges: 同一セルの3犯罪種、同一犯罪種の中心セル＋cardinal neighbors。
+- output head: 全30日のtemporal attention contextと直近日表現を結合し、Softplusで非負countへ変換。
+- graph edges: self-loop込み919、contrastive neighbor pairs 714。
+- contrastive pairを作る時点: 各30日windowの直近日1日。
+- train target stride: 7日。
+- early-stopping patience: 6 epochs。
+- random seed: 42、1 run。
+
+学習期間から求めたneighbor category coefficient:
+
+- `BURGLARY`: 0.674753。
+- `CAR_THEFT`: 0.728095。
+- `THEFT_FROM_VEHICLE`: 0.820915。
+
+実際の学習結果:
+
+- device: CPU、PyTorch `2.14.0+cpu`。
+- trainable parameters: 5,250。
+- completed epochs: 25 / 25。
+- best epoch: 25。
+- best validation total loss: 0.445806。
+- epoch 1から25でvalidation task MSE: 0.745588から0.444172。
+- epoch 1から25でvalidation type alignment: 0.170899から0.005559。
+- epoch 1から25でvalidation neighbor alignment: 0.157683から0.005335。
+
+テスト結果:
+
+| scope | MAE | MAPE（観測count > 0） | RMSE | observed mean | predicted mean |
+|---|---:|---:|---:|---:|---:|
+| ALL | 0.299248 | 0.601419 | 0.573701 | 0.279617 | 0.262906 |
+| BURGLARY | 0.187013 | 0.728975 | 0.405405 | 0.137431 | 0.122353 |
+| CAR_THEFT | 0.344345 | 0.588203 | 0.621465 | 0.341714 | 0.320347 |
+| THEFT_FROM_VEHICLE | 0.366386 | 0.554587 | 0.660929 | 0.359708 | 0.346019 |
+
+全体のpredicted/observed mean比は約0.940で、平均件数をやや過小予測しています。同じ3km tensorとtest期間を使ったreference STMGNN-ZINBのMAE 0.307679より小さい値ですが、HCLはpoint-regression、STMGNN-ZINBは確率分布NLLを目的にしており、学習sample数や出力も異なります。この1 runだけを根拠にモデルの優劣とは解釈しません。
+
+テストでは、各予測日の直前30日間の実観測を入力し、3犯罪種それぞれの次日countを205セル全域で予測します。GIFは毎日の予測から14日ごとにframeを選び、3犯罪種の予測count合計をヒートマップ、実際の事件を犯罪種別の円で表示します。学習も可視化もLAPD全21区域を一つに統合しています。
+
+生成GIFは49 frames、770 x 787 px、3,461,867 bytesです。表示予測日は2023-01-20から2024-11-22で、各frameの円はその予測日から次日までの実事件に加え、過去28日間の事件を時間経過に応じて薄く表示します。
+
+保持する出力:
+
+- `animations/H1_hcl_lapd_quantity_24h_forecast_heatmap.gif`
+- `model/model_state.pt`
+- `tables/animation_config.yml`
+- `tables/training_summary.yml`
+- `tables/daily_predictions.parquet`
+- `tables/forecast_frames.csv`
+- `tables/forecast_cell_risk.parquet`
+- `tables/forecast_top_cells.csv`
+- `tables/observed_events.parquet`
+- `metrics/summary_metrics.csv`
+- `metrics/daily_metrics.csv`
+- `metrics/training_history.csv`
+- `metrics/plots/*.png`
+
+### 3.7 our_model vol3実験
 
 実行スクリプト:
 
@@ -939,7 +1134,105 @@ MAE、RMSE、Brier score、log loss、PR-AUC、probability O/Eは小幅に改善
 
 `--reuse-model-state` を指定すると、保存済みZINB/GAT重みを使い、ETAS逐次予測、融合、GIF、結果表だけを再生成できます。
 
-### 3.7 退役した実験
+### 3.8 our_model vol4実験
+
+実行スクリプト:
+
+```text
+our_experiment/vol4/run_lapd_stnpp_gat_hcl_zinb.py
+```
+
+出力先:
+
+```text
+our_experiment/vol4/results/
+```
+
+データと分割:
+
+- model ID: `O4_stnpp_gat_hcl_zinb_multiscale`。
+- coarse grid: 3km、205セル、3犯罪種、日次。
+- fine grid: 150m、56,927セル、LAPD全21区域。
+- input history: 28日、forecast horizon: 24時間。
+- HCL-ZINB train targets: 2010-01-29から2019-12-01。
+- 利用可能な3,594 train targetsのうち7日間隔の514 samplesを学習に使用。
+- validation: 2019-12-02から2019-12-31、30 daily samples。
+- test: 2020-01-01から2024-11-30、1,796 daily samples。
+- GIF: test predictionから14日ごとに129 framesを表示。
+
+HCL-ZINB設定:
+
+- hidden dimension: 16。
+- structural hypergraph layers: 1。
+- dropout: 0.20。
+- `hawkes_scope=3`, `hawkes_delta=0.01`。
+- `lambda_type=0.15`, `lambda_neighbor=0.15`。
+- contrastive lossを各28日windowの直近日へ適用。
+- task loss: direct ZINB NLL。
+- optimizer: Adam、learning rate 0.001、weight decay 0.0001。
+- batch size: 16、maximum epochs: 25、early-stopping patience: 6。
+- random seed: 42、1 run。
+
+fine branchと融合設定はvol3と揃えます。GATはhidden 64、8 heads、1500 epochsで、区域別ETASは365日履歴、28日ごとに再推定します。HCL-ZINBのmean/varianceとcoarse point-process meanを逆分散融合し、融合後の犯罪種別meanを150mへ再配分します。
+
+実行結果:
+
+- HCL-ZINBの学習可能パラメータ数は5,252。25 epochsを完走し、best epochは23、validation total lossは0.523689、内訳はZINB NLL 0.520151、type loss 0.009212、neighbor loss 0.014374。
+- 犯罪種係数はBURGLARY 0.681291、CAR_THEFT 0.705999、THEFT_FROM_VEHICLE 0.820408。
+- GATのtransition KL lossは3.119379から2.577063へ低下。
+- 129 frame上のHCL-ZINB融合weightは平均0.420050、中央値0.431948。coarse point-process meanの平均0.299088、HCL-ZINB meanの平均0.298917に対し、融合meanは平均0.290907。
+- GIFは2020-01-01から2024-11-27までの129 frames、14日間隔。全21区域を同一地図にまとめ、ヒートマップを予測平均、色付き円を観測事件として表示。
+
+3km HCL-ZINB単体のテスト結果:
+
+| 指標 | vol3 STMGNN-ZINB | vol4 HCL-ZINB |
+|---|---:|---:|
+| MAE | 0.321306 | 0.324480 |
+| ZINB NLL / observation | 0.514162 | 0.513416 |
+| PICP 10%-90% | 0.962517 | 0.967402 |
+| MPIW 10%-90% | 0.790904 | 0.856528 |
+| Occurrence F1 | 0.544209 | 0.557056 |
+| Mean observed count | 0.292811 | 0.292811 |
+| Mean predicted count | 0.279458 | 0.300369 |
+
+HCL-ZINBはNLL、Occurrence F1、平均総量を改善しましたが、MAEは悪化し、80%区間のPICPはさらに高く、MPIWも広がりました。したがって、HCL表現によって発生有無と総量校正は改善した一方、点予測と区間の鋭さを同時には改善できていません。また、平均extra-zero probability `pi` はvol3の0.057084から0.006185へ低下しており、vol4は実質的にNB成分へ寄っています。ゼロ過剰成分が不要なのか、HCLのtype alignmentが構造的ゼロ識別を弱めたのかはablationが必要です。
+
+同じ129 frameに対する融合後150m予測のvol3比較:
+
+| 指標 | vol3 | vol4 |
+|---|---:|---:|
+| Cell MAE | 0.006042 | 0.006156 |
+| Cell RMSE | 0.057231 | 0.057233 |
+| Poisson deviance | 0.032203 | 0.032189 |
+| Brier score | 0.00299993 | 0.00300031 |
+| Log loss | 0.0187019 | 0.0186968 |
+| Probability O/E | 1.020686 | 0.982413 |
+| Count O/E | 1.038458 | 0.998913 |
+| PR-AUC | 0.031588 | 0.031898 |
+| Spearman | 0.065191 | 0.065722 |
+| Hit Rate @ 5% | 0.399278 | 0.399373 |
+| PAI @ 5% | 7.983732 | 7.985632 |
+| Area under PAI curve @ 1%-10% | 0.757746 | 0.760723 |
+
+vol4はcount O/Eをほぼ1へ補正し、Poisson deviance、log loss、PR-AUC、Spearman、hotspot rankingを小幅に改善しました。一方、Cell MAE、RMSE、Brier scoreは小幅に悪化しています。fine branchを固定したためranking差は小さく、現段階の採用効果は主にcoarse総量校正に現れたと解釈します。1 seedのみで差も小さいため、vol4がvol3より一般に優れるとはまだ結論しません。
+
+保持する出力:
+
+- `animations/O4_stnpp_gat_hcl_zinb_multiscale_24h_forecast_heatmap.gif`
+- `model/model_state.pt`
+- `tables/animation_config.yml`
+- `tables/training_summary.yml`
+- `tables/coarse_hcl_zinb_daily_predictions.parquet`
+- `tables/coarse_hcl_zinb_frame_predictions.parquet`
+- `tables/area_etas_parameters.csv`
+- `tables/learned_mark_transition.csv`
+- `metrics/hcl_zinb_summary_metrics.csv`
+- `metrics/hcl_zinb_daily_metrics.csv`
+- `metrics/hcl_zinb_training_history.csv`
+- `metrics/summary_metrics.csv`などの共通150m評価。
+- `metrics/plots/*.png`
+
+### 3.9 退役した実験
 
 以下は退役または参考用です。
 
@@ -951,11 +1244,11 @@ MAE、RMSE、Brier score、log loss、PR-AUC、probability O/Eは小幅に改善
 
 今回のファイル整理では、古い結果を保持するよりも、参照モデル再現と本プロジェクト独自モデルの改良履歴を分けることを優先しました。
 
-### 3.8 評価指標実験
+### 3.10 評価指標実験
 
-追加文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に基づき、共通150m格子を使う4実験に対して評価指標をまとめて計算しました。
+追加文献 `Predictive Policingモデルの数値実験で採用可能な評価指標` に基づき、共通150m格子を使う各実験に対して評価指標をまとめて計算します。
 
-STMGNN-ZINBは3km・犯罪種別・日次ZINB分布という異なる出力を持つため、この共通evaluatorへ無理に変換せず、論文固有のMAE、PICP、MPIW、F1、true-zero rate、KL、NLLを `ref_models/experiments/stmgnn_zinb/results/metrics/` に直接保存します。
+STMGNN-ZINBとHCLは3km・犯罪種別・日次という異なる出力を持つため、この共通evaluatorへ無理に変換しません。STMGNN-ZINBはMAE、PICP、MPIW、F1、true-zero rate、KL、NLLを `ref_models/experiments/stmgnn_zinb/results/metrics/` に、HCLは論文の数量予測指標であるMAEと正の観測に対するMAPEを `ref_models/experiments/hcl/results/metrics/` に直接保存します。
 
 実行スクリプト:
 
@@ -969,6 +1262,7 @@ metrics/evaluate_current_results.py
 - `Our vol1 STNPP-GAT`
 - `Our vol2 ETAS-enhanced STNPP-GAT`
 - `Our vol3 STNPP-GAT-ZINB`
+- `Our vol4 STNPP-GAT-HCL-ZINB`
 
 主な出力:
 
@@ -978,6 +1272,7 @@ metrics/evaluate_current_results.py
 - `our_experiment/vol1/results/metrics/`
 - `our_experiment/vol2/results/metrics/`
 - `our_experiment/vol3/results/metrics/`
+- `our_experiment/vol4/results/metrics/`
 
 各ディレクトリに含める主な出力:
 
@@ -1066,7 +1361,19 @@ vol2はETASの逐次的な自己励起校正を取り入れていますが、STN
 
 テスト時は直前28日の実観測を毎日入力するrolling one-step-ahead予測です。未来予測を自己回帰的に次の入力へ戻すmulti-step forecastや、online fine-tuningはまだ試していません。extra-zero parameter `pi` の時空間的解釈、区間calibrationの再調整、異なる履歴長に対する感度も未確認です。
 
-### 4.5 our_model vol3の限界
+### 4.5 HCL再現の限界
+
+HCL論文はframeworkをplug-and-play moduleとして記述し、数量予測にはST-HSL、発生有無予測にはST-SHNを使いますが、HCL自体の著者実装は確認できませんでした。今回の実装はHCL固有のHawkes強調、type相関、neighbor相関を数式に沿って実装した一方、backboneはLAPDの不規則な境界付き格子でも動くcompact structural hypergraphです。したがって、論文のST-HSL + HCL完全再現ではありません。
+
+論文はNYC/Chicagoの2年間・各4犯罪種を使います。今回のLAPD実験は2010-2024年の3犯罪種であり、期間、都市、crime taxonomy、セル形状が異なります。NYC向けの `lambda_type=0.15`, `lambda_neighbor=0.15`, `delta=0.01`, `s=3` を移植しましたが、LAPD上でgrid searchしていません。論文Table 3と数値を直接比較できません。
+
+論文では5 runsの平均を報告しますが、現状はCPU上のseed 42による1 runです。また15年分の全日を25 epochs学習すると計算量が大きいため、学習target日は7日間隔にしています。各sampleの30日履歴には中間日も含まれますが、全日をtargetにした学習とは異なります。type/neighbor contrastive lossも、重複rolling windowで同じ日を何度も数えないよう各windowの直近日だけに適用しています。この2点は再現性のため設定表へ保存しています。
+
+3kmセルはLAPD境界でclipされるため、論文の完全な矩形格子と異なり、端部では上下左右の一部が存在しません。neighbor係数 `beta_c` は学習期間だけから計算して情報漏洩を避けていますが、区域境界や道路ネットワークは考慮しません。
+
+現在は数量予測だけです。ST-SHNをbackboneにしたbinary occurrence版、Micro-F1/Macro-F1、HCL各要素を外したablation、論文の全grid search、5 seedsの平均と信頼区間は未実施です。またMAPEはST-HSL公式コードに合わせ、観測countが正の要素だけで計算しています。
+
+### 4.6 our_model vol3の限界
 
 vol3の逆分散融合では、fine branchの期待件数をPoissonとみなし、分散が平均に等しいと仮定しています。しかし、STNPP-GAT/ETAS側のparameter uncertaintyやmodel uncertaintyを直接推定したものではありません。ZINB branchとの独立性も仮定しているため、`w_zinb` は厳密なBayesian model averagingではなく、再現可能なuncertainty-aware heuristicです。
 
@@ -1076,7 +1383,21 @@ DGCN/MTCN branchとGAT/ETAS branchは別々に学習しています。end-to-end
 
 評価期間は右打ち切りを避けて2024年11月末までとしたため、2024年12月まで含む既存vol1/vol2の公開summaryとは期間が異なります。本文のvol2/vol3比較は両方を2024-11-27までに切った129 frameで計算しています。
 
-### 4.6 実験・評価の限界
+### 4.7 our_model vol4の限界
+
+vol4はHCL論文の再現モデルではなく、HCLの相関正則化をvol3の分布予測へ移植した独自モデルです。HCL論文の数量予測はST-HSL + MSEですが、vol4はcompact structural hypergraph + ZINB NLLです。そのため、HCL論文の改善率をvol4へ期待できるとは限りません。
+
+HCLのtype lossは、同一セル・同一日の発生犯罪種表現と非発生犯罪種表現を近づけます。これは犯罪種相関を共有する一方、ZINBが必要とする「発生と構造的ゼロの識別」と競合する可能性があります。neighbor lossも同様に、anchor発生セルと非発生neighborを近づけるため、空間平滑化が過剰になる可能性があります。type、neighbor、Hawkesを個別に外すablationで確認する必要があります。
+
+学習はCPU計算量を抑えるためtrain targetを7日間隔にし、seed 42の1 runです。validation/testは毎日評価しますが、全日target・複数seedの学習結果ではありません。`lambda_type=0.15`, `lambda_neighbor=0.15`, `delta=0.01`, `s=3` もNYC向けHCL設定の移植で、LAPD上のgrid searchは未実施です。
+
+HCL-ZINBのvarianceはaleatoricなcount dispersionを表し、parameter uncertaintyやmodel uncertaintyではありません。fine branchをPoisson近似する逆分散融合、coarse/fine branchの独立性、150mでは予測区間を出せないというvol3の制約も残ります。
+
+実測した80%予測区間はPICP 0.967402、MPIW 0.856528で、名目被覆率より大幅に高い保守的な区間でした。平均extra-zero probabilityも0.006185まで縮小しています。現状の分布headは点予測、ゼロ過剰、区間幅を十分に分離できておらず、PIT/coverage calibration、ZINB対NBの比較、補助損失ablationが必要です。
+
+fine GAT/ETAS branchはvol3と同じなので、HCL-ZINBが直接変えられるのは3kmセル・犯罪種別の総量と融合weightです。同じ3kmセル内の150m rankingはfine branchに依存し、HCLだけではstreet-network距離やfine-scale neighbor correlationは改善しません。また両branchは別々に学習され、end-to-end objectiveではありません。
+
+### 4.8 実験・評価の限界
 
 現在はGIFとオフライン評価指標を併用しています。GIFはモデル挙動を観察するには有用ですが、予測性能や社会的妥当性を単独で判断するものではありません。評価指標も、観測犯罪データへの当てはまりを測るものであり、犯罪抑止効果や住民影響を直接測るものではありません。
 
@@ -1091,7 +1412,7 @@ DGCN/MTCN branchとGAT/ETAS branchは別々に学習しています。end-to-end
 
 また、Predictive Policingの有効性は、犯罪予測の当たり外れだけでは決まりません。警察活動の配置、住民への影響、既存の通報・取締りバイアス、地域負担の偏り、feedback loopを含めて検討する必要があります。
 
-### 4.7 計算・公開上の限界
+### 4.9 計算・公開上の限界
 
 `datas/` はGit管理外であり、GitHubには公開していません。したがって、第三者が完全再現するには、LA City Open Dataから同じデータを再取得し、ローカル準備スクリプトを実行する必要があります。
 
@@ -1110,9 +1431,15 @@ CPU実行を前提にしているため、論文通りの毎日再推定や完�
 - STMGNN-ZINBの公開実装または追加仕様を確認できた場合、未記載ハイパーパラメータとgraph constructionを更新する。
 - STMGNN-ZINBについて、HA、STGCN、NB、Gaussian、Truncated Normal baselineを同じLAPD splitで再現する。
 - 3km日次共通benchmarkを作り、ETAS/STNPP-GAT系とSTMGNN-ZINBを同じ空間・時間単位で比較する。
+- HCLを全日target・5 seedsで再学習し、Hawkes/type/neighbor各要素のablationを行う。
+- HCLのST-HSL完全backboneと、ST-SHNによるbinary occurrence版を再現する。
+- HCLの `lambda_type`, `lambda_neighbor`, `delta`, `s` をLAPD validationでgrid searchする。
+- vol4でHCL-ZINBのHawkes、type loss、neighbor lossを個別に外すablationを行う。
+- vol4を全日target・複数seedで再学習し、vol3との差に信頼区間を付ける。
+- coarse HCL-ZINBとfine GAT/ETASをjoint objectiveで学習する方法を検討する。
 - vol3をend-to-endのjoint likelihoodで学習し、GAT/ETAS側にもepistemic uncertaintyまたはcount varianceを導入する。
 - coarse ZINB分布を150mへ確率的に分解するhierarchical allocation modelを検討する。
-- vol3を検証し、空間核、report delay、network distanceのいずれかを取り込んだvol4を作る。
+- vol4を検証し、空間核、report delay、network distanceのいずれかを取り込んだ次版を作る。
 - report delayを考慮した実運用風のデータ利用時点を再現する。
 - 評価メトリックにbootstrap 95%信頼区間を追加する。
 - AIC/BIC、time-rescaling KS、next-event評価に必要なモデル出力を保存する。

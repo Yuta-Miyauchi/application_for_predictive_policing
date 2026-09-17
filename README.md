@@ -21,6 +21,8 @@ our_model/
     STNPP-GAT with ETAS-calibrated area-wise triggering.
   vol3/
     Multiscale STNPP-GAT with uncertainty-weighted STMGNN-ZINB calibration.
+  vol4/
+    Multiscale STNPP-GAT with HCL-regularized ZINB calibration.
 our_experiment/
   Root-level project-owned experiments and selected result GIFs.
   common/
@@ -31,16 +33,22 @@ our_experiment/
     Experiment for our_model/vol2.
   vol3/
     Experiment for our_model/vol3.
+  vol4/
+    Experiment for our_model/vol4.
 ref_models/
   Reproductions of prior research.
   models/etas/
     ETAS reference implementation.
   models/stmgnn_zinb/
     STMGNN-ZINB uncertainty-aware graph model.
+  models/hcl/
+    Hawkes-enhanced spatial-temporal hypergraph contrastive model.
   experiments/etas/
     Mohler-style ETAS reproduction and selected result GIF.
   experiments/stmgnn_zinb/
     Paper-constrained STMGNN-ZINB experiment, metrics, and selected GIF.
+  experiments/hcl/
+    Paper-constrained HCL quantity experiment, metrics, and selected GIF.
 PROGRESS.md
 README.md
 ```
@@ -54,15 +62,17 @@ Local datasets are not committed to Git.
 - Target crimes: `BURGLARY`, `CAR_THEFT`, `THEFT_FROM_VEHICLE`
 - Target-crime events: 919,284
 - Grid: 150 m, 56,927 cells, all 21 LAPD areas
-- STMGNN-ZINB derived dataset: daily counts on 205 intersecting 3 km cells
+- STMGNN-ZINB/HCL derived dataset: daily counts on 205 intersecting 3 km cells
 
 ## Current Models
 
 - `ref_models/models/etas`: Mohler-style ETAS reference model.
 - `ref_models/models/stmgnn_zinb`: DGCN + MTCN model with a zero-inflated negative binomial output.
+- `ref_models/models/hcl`: Hypergraph encoding with HCL's Hawkes and correlation losses.
 - `our_model/vol1`: STNPP-GAT mark-interaction point-process baseline.
 - `our_model/vol2`: vol1 plus ETAS-style area-wise rolling `theta/omega` calibration for self-excitation.
 - `our_model/vol3`: vol2 fine-grid allocation plus DGCN/MTCN ZINB count distributions on 3 km cells, fused according to predictive uncertainty.
+- `our_model/vol4`: vol3's fine branch and fusion with an HCL-regularized 3 km ZINB count model.
 
 ## Reproduction Commands
 
@@ -96,6 +106,17 @@ chronological 7:1 split and 30-day validation tail, evaluates ZINB uncertainty,
 and creates the LAPD-wide GIF. Neural hyperparameters omitted by the paper are
 recorded in `training_summary.yml` and [PROGRESS.md](PROGRESS.md).
 
+Run the HCL quantity-prediction experiment:
+
+```bash
+.venv/bin/python -u ref_models/experiments/hcl/run_lapd_hcl.py
+```
+
+This uses the same 3 km daily LAPD tensor, a 30-day rolling history, and the
+paper's HCL coefficients selected for NYC. The HCL-specific equations follow
+the paper; omitted backbone details and the CPU-oriented training subsampling
+are recorded in `training_summary.yml` and [PROGRESS.md](PROGRESS.md).
+
 Run our STNPP-GAT vol1 experiment:
 
 ```bash
@@ -119,6 +140,17 @@ adaptive GAT/ETAS allocation at 150 m, and forecasts 2020 through November
 2024. To regenerate allocation and the GIF from saved local weights without
 retraining, add `--reuse-model-state`.
 
+Run our HCL-regularized multiscale vol4 experiment:
+
+```bash
+.venv/bin/python -u our_experiment/vol4/run_lapd_stnpp_gat_hcl_zinb.py
+```
+
+Vol4 applies HCL's type, cardinal-neighbor, and representation-level Hawkes
+correlations only to the 3 km ZINB branch. The 150 m GAT/ETAS allocation and
+vol3's uncertainty-weighted fusion remain intact. Add `--reuse-model-state`
+to regenerate the replay and GIF from the saved local weights.
+
 Evaluate the current experiment outputs:
 
 ```bash
@@ -131,17 +163,21 @@ Metric tables and plots are written into each model's result directory:
 
 - `ref_models/experiments/etas/results/metrics/`
 - `ref_models/experiments/stmgnn_zinb/results/metrics/` (written by its experiment script)
+- `ref_models/experiments/hcl/results/metrics/` (written by its experiment script)
 - `our_experiment/vol1/results/metrics/`
 - `our_experiment/vol2/results/metrics/`
 - `our_experiment/vol3/results/metrics/`
+- `our_experiment/vol4/results/metrics/`
 
 ## Published GIFs
 
 - `ref_models/experiments/etas/results/animations/M7_mohler_style_lapd_etas_24h_forecast_heatmap.gif`
 - `ref_models/experiments/stmgnn_zinb/results/animations/U1_stmgnn_zinb_lapd_24h_forecast_heatmap.gif`
+- `ref_models/experiments/hcl/results/animations/H1_hcl_lapd_quantity_24h_forecast_heatmap.gif`
 - `our_experiment/vol1/results/animations/T2_stnpp_gat_marked_point_process_24h_forecast_heatmap.gif`
 - `our_experiment/vol2/results/animations/O2_etas_enhanced_stnpp_gat_24h_forecast_heatmap.gif`
 - `our_experiment/vol3/results/animations/O3_stnpp_gat_zinb_multiscale_24h_forecast_heatmap.gif`
+- `our_experiment/vol4/results/animations/O4_stnpp_gat_hcl_zinb_multiscale_24h_forecast_heatmap.gif`
 
 Replay tables and model states are retained locally but ignored by Git.
 

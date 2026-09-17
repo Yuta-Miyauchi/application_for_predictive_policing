@@ -68,6 +68,11 @@ MODELS = (
         label="Our vol3 STNPP-GAT-ZINB",
         result_dir=ROOT / "our_experiment/vol3/results",
     ),
+    ModelResult(
+        name="our_vol4",
+        label="Our vol4 STNPP-GAT-HCL-ZINB",
+        result_dir=ROOT / "our_experiment/vol4/results",
+    ),
 )
 
 

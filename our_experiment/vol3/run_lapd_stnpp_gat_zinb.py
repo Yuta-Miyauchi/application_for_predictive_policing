@@ -247,6 +247,7 @@ def replay_vol3(
     coarse_predictions: dict[str, np.ndarray],
     test_dates: pd.DatetimeIndex,
     args: argparse.Namespace,
+    run_label: str = "Vol3",
 ) -> tuple[pd.Index, list[dict], np.ndarray, pd.DataFrame, pd.DataFrame]:
     grid = fine.grid.copy()
     cells = pd.Index(grid["cell_id"].astype(str), name="cell_id")
@@ -394,7 +395,7 @@ def replay_vol3(
                     }
                 )
         if (frame_index + 1) % 10 == 0 or frame_index + 1 == len(frame_offsets):
-            print(f"Vol3 forecasted {frame_index + 1}/{len(frame_offsets)} frames")
+            print(f"{run_label} forecasted {frame_index + 1}/{len(frame_offsets)} frames")
 
     return (
         cells,
